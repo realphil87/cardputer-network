@@ -24,6 +24,20 @@
 #include <lwip/netdb.h>
 #include "qrcode.h"
 
+// Keyboard key definitions (M5Cardputer 1.1.x compatibility)
+#ifndef KEY_ESC
+#define KEY_ESC 0x1B
+#endif
+#ifndef KEY_UP
+#define KEY_UP 0x18
+#endif
+#ifndef KEY_DOWN
+#define KEY_DOWN 0x19
+#endif
+#ifndef KEY_ENTER
+#define KEY_ENTER 0x0D
+#endif
+
 // Helper: convert vector<char> to String (M5Cardputer 1.1.x compatibility)
 String keyWord(const std::vector<char>& word) {
     if(word.empty()) return "";
