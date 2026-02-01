@@ -1,5 +1,5 @@
 /*
- * Network Toolkit per M5Stack Cardputer
+ * Network Toolkit v10 per M5Stack Cardputer
  * Tool completo per network engineering
  *
  * Funzionalità:
@@ -12,6 +12,15 @@
  * - Subnet Calculator
  * - Network Monitor
  * - QR Code WiFi
+ *
+ * v10 Changes:
+ * - New animated splash screen
+ * - Horizontal scrolling icon menu
+ * - WiFi credentials persistence
+ * - Fixed IP Scanner bugs (range, flashing, ESC, details)
+ * - Fixed Ping Sweep stop functionality
+ * - Larger fonts for better readability
+ * - Improved device identification
  */
 
 #include <M5Cardputer.h>
@@ -22,7 +31,11 @@
 #include <lwip/etharp.h>
 #include <lwip/tcpip.h>
 #include <lwip/netdb.h>
+#include <Preferences.h>
 #include "qrcode.h"
+
+// Preferences for WiFi storage
+Preferences preferences;
 
 // Keyboard key definitions (M5Cardputer 1.1.x compatibility)
 #ifndef KEY_ESC
@@ -44,18 +57,27 @@ String keyWord(const std::vector<char>& word) {
     return String(word.data(), word.size());
 }
 
-// Display colors
-#define COLOR_BG       TFT_BLACK
-#define COLOR_TEXT     TFT_WHITE
-#define COLOR_TITLE    TFT_CYAN
-#define COLOR_SUCCESS  TFT_GREEN
-#define COLOR_ERROR    TFT_RED
-#define COLOR_WARNING  TFT_YELLOW
-#define COLOR_MENU_SEL TFT_BLUE
+// Display colors - Enhanced palette
+#define COLOR_BG       0x0000  // Pure black
+#define COLOR_TEXT     0xFFFF  // White
+#define COLOR_TITLE    0x07FF  // Cyan
+#define COLOR_SUCCESS  0x07E0  // Green
+#define COLOR_ERROR    0xF800  // Red
+#define COLOR_WARNING  0xFFE0  // Yellow
+#define COLOR_MENU_SEL 0x001F  // Blue
+#define COLOR_ACCENT   0xF81F  // Magenta
+#define COLOR_ORANGE   0xFD20  // Orange
+#define COLOR_DARKGRAY 0x4208  // Dark gray
+#define COLOR_LIGHTGRAY 0x8410 // Light gray
 
 // Screen dimensions
 #define SCREEN_W 240
 #define SCREEN_H 135
+
+// Icon dimensions for menu
+#define ICON_SIZE 40
+#define ICON_SPACING 10
+#define ICON_Y 45
 
 // Network settings
 #define MAX_HOSTS 254
@@ -99,27 +121,38 @@ int menuSelection = 0;
 int menuOffset = 0;
 bool wifiConnected = false;
 String connectedSSID = "";
+String savedPassword = "";
 ScanResult scanResults;
 IPAddress localIP;
 IPAddress gateway;
 IPAddress subnet;
 
-// Menu items
-const char* mainMenuItems[] = {
-    "WiFi Connect",
-    "IP Scanner",
-    "Port Scanner",
-    "Ping Sweep",
-    "DNS Lookup",
-    "DHCP Discover",
-    "Signal Mapper",
-    "Subnet Calc",
-    "Net Monitor",
-    "WiFi QR Code",
-    "WiFi Networks",
-    "SNMP Query"
+// Menu structure with icons
+struct MenuItem {
+    const char* name;
+    const char* shortName;
+    uint16_t color;
+    const char* icon;  // Simple text icon
+};
+
+const MenuItem menuItems[] = {
+    {"WiFi Connect", "WiFi", COLOR_TITLE, "W"},
+    {"IP Scanner", "Scan", COLOR_SUCCESS, "S"},
+    {"Port Scanner", "Ports", COLOR_ORANGE, "P"},
+    {"Ping Sweep", "Ping", COLOR_WARNING, "G"},
+    {"DNS Lookup", "DNS", COLOR_ACCENT, "D"},
+    {"DHCP Discover", "DHCP", COLOR_LIGHTGRAY, "H"},
+    {"Signal Mapper", "Signal", COLOR_SUCCESS, "M"},
+    {"Subnet Calc", "Subnet", COLOR_TITLE, "N"},
+    {"Net Monitor", "Monitor", COLOR_ERROR, "O"},
+    {"WiFi QR Code", "QR", COLOR_ACCENT, "Q"},
+    {"WiFi Networks", "Nets", COLOR_WARNING, "L"},
+    {"SNMP Query", "SNMP", COLOR_ORANGE, "X"}
 };
 const int mainMenuCount = 12;
+
+// Interrupt flag for stopping operations
+volatile bool stopRequested = false;
 
 // Common ports per port scan
 const uint16_t commonPorts[] = {
@@ -136,54 +169,545 @@ struct MacVendor {
 };
 
 const MacVendor macVendors[] = {
+    // Cisco
     {{0x00, 0x1A, 0x2B}, "Cisco"},
+    {{0x00, 0x1B, 0x0D}, "Cisco"},
+    {{0x00, 0x1C, 0x0E}, "Cisco"},
+    {{0x00, 0x1D, 0x45}, "Cisco"},
+    {{0x00, 0x22, 0x0D}, "Cisco"},
+    // VMware
     {{0x00, 0x50, 0x56}, "VMware"},
     {{0x00, 0x0C, 0x29}, "VMware"},
+    {{0x00, 0x05, 0x69}, "VMware"},
+    // Microsoft
     {{0x00, 0x15, 0x5D}, "Microsoft"},
-    {{0x00, 0x1C, 0x42}, "Parallels"},
+    {{0x00, 0x17, 0xFA}, "Microsoft"},
+    {{0x00, 0x1D, 0xD8}, "Microsoft"},
+    {{0x28, 0x18, 0x78}, "Microsoft"},
+    // VirtualBox
     {{0x08, 0x00, 0x27}, "VirtualBox"},
+    {{0x00, 0x1C, 0x42}, "Parallels"},
+    // Apple
     {{0xAC, 0xDE, 0x48}, "Apple"},
     {{0x3C, 0x06, 0x30}, "Apple"},
-    {{0xDC, 0xA6, 0x32}, "Raspberry"},
-    {{0xB8, 0x27, 0xEB}, "Raspberry"},
-    {{0x00, 0x1E, 0x58}, "D-Link"},
-    {{0xC8, 0x3A, 0x35}, "Tenda"},
+    {{0x00, 0x03, 0x93}, "Apple"},
+    {{0x00, 0x0A, 0x27}, "Apple"},
+    {{0x00, 0x0A, 0x95}, "Apple"},
+    {{0x00, 0x10, 0xFA}, "Apple"},
+    {{0x00, 0x1C, 0xB3}, "Apple"},
+    {{0x00, 0x1D, 0x4F}, "Apple"},
+    {{0x00, 0x1E, 0x52}, "Apple"},
+    {{0x00, 0x1F, 0x5B}, "Apple"},
+    {{0x00, 0x1F, 0xF3}, "Apple"},
+    {{0x00, 0x21, 0xE9}, "Apple"},
+    {{0x00, 0x22, 0x41}, "Apple"},
+    {{0x00, 0x23, 0x12}, "Apple"},
+    {{0x00, 0x23, 0x32}, "Apple"},
+    {{0x00, 0x23, 0x6C}, "Apple"},
+    {{0x00, 0x23, 0xDF}, "Apple"},
+    {{0x00, 0x24, 0x36}, "Apple"},
+    {{0x00, 0x25, 0x00}, "Apple"},
+    {{0x00, 0x25, 0xBC}, "Apple"},
+    {{0x00, 0x26, 0x08}, "Apple"},
+    {{0x00, 0x26, 0xB0}, "Apple"},
+    {{0x00, 0x26, 0xBB}, "Apple"},
+    {{0x14, 0x10, 0x9F}, "Apple"},
+    {{0x18, 0xE7, 0xF4}, "Apple"},
+    {{0x20, 0xC9, 0xD0}, "Apple"},
+    {{0x24, 0xA0, 0x74}, "Apple"},
+    {{0x28, 0xCF, 0xDA}, "Apple"},
+    {{0x34, 0x15, 0x9E}, "Apple"},
+    {{0x38, 0xC9, 0x86}, "Apple"},
+    {{0x40, 0x6C, 0x8F}, "Apple"},
+    {{0x44, 0xD8, 0x84}, "Apple"},
+    {{0x5C, 0xF9, 0x38}, "Apple"},
+    {{0x70, 0x56, 0x81}, "Apple"},
+    {{0x78, 0x31, 0xC1}, "Apple"},
+    {{0x78, 0x88, 0x6D}, "Apple"},
+    {{0x84, 0x78, 0x8B}, "Apple"},
+    {{0x84, 0x85, 0x06}, "Apple"},
+    {{0x88, 0xC6, 0x63}, "Apple"},
+    {{0xA8, 0x5C, 0x2C}, "Apple"},
+    {{0xA8, 0x86, 0xDD}, "Apple"},
+    {{0xAC, 0x87, 0xA3}, "Apple"},
+    {{0xB8, 0xE8, 0x56}, "Apple"},
+    {{0xBC, 0x52, 0xB7}, "Apple"},
+    {{0xD8, 0xD1, 0xCB}, "Apple"},
+    {{0xE0, 0xB9, 0xBA}, "Apple"},
+    {{0xF0, 0xDC, 0xE2}, "Apple"},
+    // Raspberry Pi
+    {{0xDC, 0xA6, 0x32}, "Raspberry Pi"},
+    {{0xB8, 0x27, 0xEB}, "Raspberry Pi"},
+    {{0xE4, 0x5F, 0x01}, "Raspberry Pi"},
+    {{0x28, 0xCD, 0xC1}, "Raspberry Pi"},
+    {{0xD8, 0x3A, 0xDD}, "Raspberry Pi"},
+    // Samsung
+    {{0x00, 0x00, 0xF0}, "Samsung"},
+    {{0x00, 0x02, 0x78}, "Samsung"},
+    {{0x00, 0x07, 0xAB}, "Samsung"},
+    {{0x00, 0x09, 0x18}, "Samsung"},
+    {{0x00, 0x12, 0x47}, "Samsung"},
+    {{0x00, 0x12, 0xFB}, "Samsung"},
+    {{0x00, 0x13, 0x77}, "Samsung"},
+    {{0x00, 0x15, 0x99}, "Samsung"},
+    {{0x00, 0x15, 0xB9}, "Samsung"},
+    {{0x00, 0x16, 0x32}, "Samsung"},
+    {{0x00, 0x16, 0x6B}, "Samsung"},
+    {{0x00, 0x16, 0x6C}, "Samsung"},
+    {{0x00, 0x16, 0xDB}, "Samsung"},
+    {{0x00, 0x17, 0xC9}, "Samsung"},
+    {{0x00, 0x17, 0xD5}, "Samsung"},
+    {{0x00, 0x18, 0xAF}, "Samsung"},
+    {{0x00, 0x1A, 0x8A}, "Samsung"},
+    {{0x00, 0x1B, 0x98}, "Samsung"},
+    {{0x00, 0x1C, 0x43}, "Samsung"},
+    {{0x00, 0x1D, 0x25}, "Samsung"},
+    {{0x00, 0x1D, 0xF6}, "Samsung"},
+    {{0x00, 0x1E, 0x7D}, "Samsung"},
+    {{0x00, 0x1E, 0xE1}, "Samsung"},
+    {{0x00, 0x1E, 0xE2}, "Samsung"},
+    {{0x00, 0x1F, 0xCC}, "Samsung"},
+    {{0x00, 0x1F, 0xCD}, "Samsung"},
+    {{0x00, 0x21, 0x19}, "Samsung"},
+    {{0x00, 0x21, 0x4C}, "Samsung"},
+    {{0x00, 0x21, 0xD1}, "Samsung"},
+    {{0x00, 0x21, 0xD2}, "Samsung"},
+    {{0x00, 0x24, 0x54}, "Samsung"},
+    {{0x00, 0x24, 0x90}, "Samsung"},
+    {{0x00, 0x24, 0x91}, "Samsung"},
+    {{0x00, 0x25, 0x66}, "Samsung"},
+    {{0x00, 0x25, 0x67}, "Samsung"},
+    {{0x00, 0x26, 0x37}, "Samsung"},
+    {{0x00, 0x26, 0x5D}, "Samsung"},
+    // Xiaomi
+    {{0x48, 0x2C, 0xA0}, "Xiaomi"},
+    {{0x64, 0xB4, 0x73}, "Xiaomi"},
+    {{0x0C, 0x1D, 0xAF}, "Xiaomi"},
+    {{0x14, 0xF6, 0x5A}, "Xiaomi"},
+    {{0x18, 0x59, 0x36}, "Xiaomi"},
+    {{0x28, 0x6C, 0x07}, "Xiaomi"},
+    {{0x34, 0x80, 0xB3}, "Xiaomi"},
+    {{0x38, 0xA4, 0xED}, "Xiaomi"},
+    {{0x50, 0x8F, 0x4C}, "Xiaomi"},
+    {{0x58, 0x44, 0x98}, "Xiaomi"},
+    {{0x64, 0x09, 0x80}, "Xiaomi"},
+    {{0x74, 0x23, 0x44}, "Xiaomi"},
+    {{0x7C, 0x1D, 0xD9}, "Xiaomi"},
+    {{0x84, 0x09, 0x3F}, "Xiaomi"},
+    {{0x8C, 0xBE, 0xBE}, "Xiaomi"},
+    {{0x98, 0xFA, 0xE3}, "Xiaomi"},
+    {{0xAC, 0xF7, 0xF3}, "Xiaomi"},
+    {{0xB0, 0xE2, 0x35}, "Xiaomi"},
+    {{0xC4, 0x6A, 0xB7}, "Xiaomi"},
+    {{0xD4, 0x97, 0x0B}, "Xiaomi"},
+    {{0xF8, 0xA4, 0x5F}, "Xiaomi"},
+    {{0xFC, 0x64, 0xBA}, "Xiaomi"},
+    // Huawei
+    {{0x7C, 0x1E, 0x52}, "Huawei"},
+    {{0x00, 0x18, 0x82}, "Huawei"},
+    {{0x00, 0x1E, 0x10}, "Huawei"},
+    {{0x00, 0x25, 0x68}, "Huawei"},
+    {{0x00, 0x25, 0x9E}, "Huawei"},
+    {{0x00, 0x46, 0x4B}, "Huawei"},
+    {{0x00, 0x66, 0x4B}, "Huawei"},
+    {{0x00, 0x9A, 0xCD}, "Huawei"},
+    {{0x00, 0xE0, 0xFC}, "Huawei"},
+    {{0x04, 0x02, 0x1F}, "Huawei"},
+    {{0x04, 0xB0, 0xE7}, "Huawei"},
+    {{0x04, 0xC0, 0x6F}, "Huawei"},
+    {{0x04, 0xF9, 0x38}, "Huawei"},
+    {{0x08, 0x19, 0xA6}, "Huawei"},
+    {{0x08, 0x7A, 0x4C}, "Huawei"},
+    {{0x0C, 0x37, 0xDC}, "Huawei"},
+    {{0x0C, 0x96, 0xBF}, "Huawei"},
+    {{0x10, 0x1B, 0x54}, "Huawei"},
+    {{0x10, 0x47, 0x80}, "Huawei"},
+    // Google
+    {{0x00, 0x1A, 0x11}, "Google"},
+    {{0x3C, 0x5A, 0xB4}, "Google"},
+    {{0x54, 0x60, 0x09}, "Google"},
+    {{0x94, 0xEB, 0x2C}, "Google"},
+    {{0xF4, 0xF5, 0xD8}, "Google"},
+    {{0xF4, 0xF5, 0xE8}, "Google"},
+    // Amazon
+    {{0x00, 0xFC, 0x8B}, "Amazon"},
+    {{0x0C, 0x47, 0xC9}, "Amazon"},
+    {{0x10, 0xCE, 0xA9}, "Amazon"},
+    {{0x18, 0x74, 0x2E}, "Amazon"},
+    {{0x34, 0xD2, 0x70}, "Amazon"},
+    {{0x38, 0xF7, 0x3D}, "Amazon"},
+    {{0x40, 0xB4, 0xCD}, "Amazon"},
+    {{0x44, 0x65, 0x0D}, "Amazon"},
+    {{0x50, 0xDC, 0xE7}, "Amazon"},
+    {{0x68, 0x54, 0xFD}, "Amazon"},
+    {{0x68, 0x9C, 0x70}, "Amazon"},
+    {{0x74, 0x75, 0x48}, "Amazon"},
+    {{0x74, 0xC2, 0x46}, "Amazon"},
+    {{0x84, 0xD6, 0xD0}, "Amazon"},
+    {{0xA0, 0x02, 0xDC}, "Amazon"},
+    {{0xAC, 0x63, 0xBE}, "Amazon"},
+    {{0xB4, 0x7C, 0x9C}, "Amazon"},
+    {{0xF0, 0x27, 0x2D}, "Amazon"},
+    {{0xF0, 0x81, 0x73}, "Amazon"},
+    {{0xFC, 0x65, 0xDE}, "Amazon"},
+    // TP-Link
     {{0x50, 0xC7, 0xBF}, "TP-Link"},
     {{0x98, 0xDA, 0xC4}, "TP-Link"},
     {{0x30, 0xB5, 0xC2}, "TP-Link"},
+    {{0xAC, 0x84, 0xC6}, "TP-Link"},
+    {{0x14, 0xCC, 0x20}, "TP-Link"},
+    {{0x14, 0xCF, 0x92}, "TP-Link"},
+    {{0x18, 0xA6, 0xF7}, "TP-Link"},
+    {{0x1C, 0xFA, 0x68}, "TP-Link"},
+    {{0x54, 0xC8, 0x0F}, "TP-Link"},
+    {{0x5C, 0x89, 0x9A}, "TP-Link"},
+    {{0x60, 0xE3, 0x27}, "TP-Link"},
+    {{0x64, 0x66, 0xB3}, "TP-Link"},
+    {{0x64, 0x70, 0x02}, "TP-Link"},
+    {{0x6C, 0xB0, 0xCE}, "TP-Link"},
+    {{0x74, 0xDA, 0x88}, "TP-Link"},
+    {{0x94, 0x0C, 0x6D}, "TP-Link"},
+    {{0xB0, 0x4E, 0x26}, "TP-Link"},
+    {{0xC0, 0x25, 0xE9}, "TP-Link"},
+    {{0xC4, 0xE9, 0x84}, "TP-Link"},
+    {{0xD8, 0x07, 0xB6}, "TP-Link"},
+    {{0xEC, 0x08, 0x6B}, "TP-Link"},
+    {{0xEC, 0x17, 0x2F}, "TP-Link"},
+    {{0xF4, 0xEC, 0x38}, "TP-Link"},
+    // D-Link
+    {{0x00, 0x1E, 0x58}, "D-Link"},
+    {{0x00, 0x05, 0x5D}, "D-Link"},
+    {{0x00, 0x0D, 0x88}, "D-Link"},
+    {{0x00, 0x0F, 0x3D}, "D-Link"},
+    {{0x00, 0x11, 0x95}, "D-Link"},
+    {{0x00, 0x13, 0x46}, "D-Link"},
+    {{0x00, 0x15, 0xE9}, "D-Link"},
+    {{0x00, 0x17, 0x9A}, "D-Link"},
+    {{0x00, 0x19, 0x5B}, "D-Link"},
+    {{0x00, 0x1B, 0x11}, "D-Link"},
+    {{0x00, 0x1C, 0xF0}, "D-Link"},
+    {{0x00, 0x1E, 0x58}, "D-Link"},
+    {{0x00, 0x21, 0x91}, "D-Link"},
+    {{0x00, 0x22, 0xB0}, "D-Link"},
+    {{0x00, 0x24, 0x01}, "D-Link"},
+    {{0x00, 0x26, 0x5A}, "D-Link"},
+    // Netgear
     {{0x00, 0x24, 0xB2}, "Netgear"},
     {{0x00, 0x26, 0xF2}, "Netgear"},
+    {{0x00, 0x09, 0x5B}, "Netgear"},
+    {{0x00, 0x0F, 0xB5}, "Netgear"},
+    {{0x00, 0x14, 0x6C}, "Netgear"},
+    {{0x00, 0x18, 0x4D}, "Netgear"},
+    {{0x00, 0x1B, 0x2F}, "Netgear"},
+    {{0x00, 0x1E, 0x2A}, "Netgear"},
+    {{0x00, 0x1F, 0x33}, "Netgear"},
+    {{0x00, 0x22, 0x3F}, "Netgear"},
+    {{0x20, 0x4E, 0x7F}, "Netgear"},
+    {{0x28, 0xC6, 0x8E}, "Netgear"},
+    {{0x30, 0x46, 0x9A}, "Netgear"},
+    {{0x44, 0x94, 0xFC}, "Netgear"},
+    {{0x6C, 0xB0, 0xCE}, "Netgear"},
+    {{0x84, 0x1B, 0x5E}, "Netgear"},
+    {{0x9C, 0x3D, 0xCF}, "Netgear"},
+    {{0xA4, 0x2B, 0x8C}, "Netgear"},
+    {{0xC0, 0x3F, 0x0E}, "Netgear"},
+    {{0xC4, 0x04, 0x15}, "Netgear"},
+    {{0xE0, 0x46, 0x9A}, "Netgear"},
+    {{0xE0, 0x91, 0xF5}, "Netgear"},
+    // ASUS
     {{0xF8, 0x32, 0xE4}, "ASUS"},
     {{0x00, 0x22, 0x15}, "ASUS"},
+    {{0x00, 0x0C, 0x6E}, "ASUS"},
+    {{0x00, 0x11, 0x2F}, "ASUS"},
+    {{0x00, 0x11, 0xD8}, "ASUS"},
+    {{0x00, 0x13, 0xD4}, "ASUS"},
+    {{0x00, 0x15, 0xF2}, "ASUS"},
+    {{0x00, 0x17, 0x31}, "ASUS"},
+    {{0x00, 0x18, 0xF3}, "ASUS"},
+    {{0x00, 0x1A, 0x92}, "ASUS"},
+    {{0x00, 0x1B, 0xFC}, "ASUS"},
+    {{0x00, 0x1D, 0x60}, "ASUS"},
+    {{0x00, 0x1E, 0x8C}, "ASUS"},
+    {{0x00, 0x1F, 0xC6}, "ASUS"},
+    {{0x00, 0x22, 0x15}, "ASUS"},
+    {{0x00, 0x23, 0x54}, "ASUS"},
+    {{0x00, 0x24, 0x8C}, "ASUS"},
+    {{0x00, 0x25, 0x22}, "ASUS"},
+    {{0x00, 0x26, 0x18}, "ASUS"},
+    {{0x04, 0x92, 0x26}, "ASUS"},
+    {{0x08, 0x60, 0x6E}, "ASUS"},
+    {{0x10, 0xBF, 0x48}, "ASUS"},
+    {{0x14, 0xDA, 0xE9}, "ASUS"},
+    {{0x1C, 0x87, 0x2C}, "ASUS"},
+    {{0x20, 0xCF, 0x30}, "ASUS"},
+    {{0x2C, 0x56, 0xDC}, "ASUS"},
+    {{0x2C, 0xFD, 0xA1}, "ASUS"},
+    {{0x30, 0x85, 0xA9}, "ASUS"},
+    {{0x34, 0x97, 0xF6}, "ASUS"},
+    {{0x38, 0x2C, 0x4A}, "ASUS"},
+    {{0x38, 0xD5, 0x47}, "ASUS"},
+    {{0x3C, 0x97, 0x0E}, "ASUS"},
+    // Dell
     {{0x00, 0x23, 0x24}, "Dell"},
     {{0x18, 0x03, 0x73}, "Dell"},
+    {{0x00, 0x1A, 0xA0}, "Dell"},
+    {{0x00, 0x06, 0x5B}, "Dell"},
+    {{0x00, 0x08, 0x74}, "Dell"},
+    {{0x00, 0x0B, 0xDB}, "Dell"},
+    {{0x00, 0x0D, 0x56}, "Dell"},
+    {{0x00, 0x0F, 0x1F}, "Dell"},
+    {{0x00, 0x11, 0x43}, "Dell"},
+    {{0x00, 0x12, 0x3F}, "Dell"},
+    {{0x00, 0x13, 0x72}, "Dell"},
+    {{0x00, 0x14, 0x22}, "Dell"},
+    {{0x00, 0x15, 0xC5}, "Dell"},
+    {{0x00, 0x18, 0x8B}, "Dell"},
+    {{0x00, 0x19, 0xB9}, "Dell"},
+    {{0x00, 0x1C, 0x23}, "Dell"},
+    {{0x00, 0x1D, 0x09}, "Dell"},
+    {{0x00, 0x1E, 0x4F}, "Dell"},
+    {{0x00, 0x1E, 0xC9}, "Dell"},
+    {{0x00, 0x21, 0x70}, "Dell"},
+    {{0x00, 0x21, 0x9B}, "Dell"},
+    {{0x00, 0x22, 0x19}, "Dell"},
+    {{0x00, 0x24, 0xE8}, "Dell"},
+    {{0x00, 0x25, 0x64}, "Dell"},
+    {{0x00, 0x26, 0xB9}, "Dell"},
+    {{0x14, 0xFE, 0xB5}, "Dell"},
+    {{0x18, 0x03, 0x73}, "Dell"},
+    {{0x18, 0x66, 0xDA}, "Dell"},
+    {{0x18, 0xA9, 0x9B}, "Dell"},
+    {{0x18, 0xDB, 0xF2}, "Dell"},
+    {{0x1C, 0x40, 0x24}, "Dell"},
+    {{0x24, 0xB6, 0xFD}, "Dell"},
+    // HP
     {{0x00, 0x21, 0x5A}, "HP"},
     {{0x3C, 0xD9, 0x2B}, "HP"},
+    {{0x00, 0x01, 0xE6}, "HP"},
+    {{0x00, 0x01, 0xE7}, "HP"},
+    {{0x00, 0x02, 0xA5}, "HP"},
+    {{0x00, 0x04, 0xEA}, "HP"},
+    {{0x00, 0x08, 0x02}, "HP"},
+    {{0x00, 0x08, 0x83}, "HP"},
+    {{0x00, 0x0A, 0x57}, "HP"},
+    {{0x00, 0x0B, 0xCD}, "HP"},
+    {{0x00, 0x0D, 0x9D}, "HP"},
+    {{0x00, 0x0E, 0x7F}, "HP"},
+    {{0x00, 0x0F, 0x20}, "HP"},
+    {{0x00, 0x0F, 0x61}, "HP"},
+    {{0x00, 0x10, 0x83}, "HP"},
+    {{0x00, 0x11, 0x0A}, "HP"},
+    {{0x00, 0x11, 0x85}, "HP"},
+    {{0x00, 0x12, 0x79}, "HP"},
+    {{0x00, 0x13, 0x21}, "HP"},
+    {{0x00, 0x14, 0x38}, "HP"},
+    {{0x00, 0x14, 0xC2}, "HP"},
+    {{0x00, 0x15, 0x60}, "HP"},
+    {{0x00, 0x16, 0x35}, "HP"},
+    {{0x00, 0x17, 0x08}, "HP"},
+    {{0x00, 0x17, 0xA4}, "HP"},
+    {{0x00, 0x18, 0x71}, "HP"},
+    {{0x00, 0x18, 0xFE}, "HP"},
+    {{0x00, 0x19, 0xBB}, "HP"},
+    {{0x00, 0x1A, 0x4B}, "HP"},
+    {{0x00, 0x1B, 0x78}, "HP"},
+    {{0x00, 0x1C, 0xC4}, "HP"},
+    {{0x00, 0x1E, 0x0B}, "HP"},
+    {{0x00, 0x1F, 0x29}, "HP"},
+    {{0x00, 0x21, 0x5A}, "HP"},
+    {{0x00, 0x22, 0x64}, "HP"},
+    {{0x00, 0x23, 0x7D}, "HP"},
+    {{0x00, 0x24, 0x81}, "HP"},
+    {{0x00, 0x25, 0xB3}, "HP"},
+    {{0x00, 0x26, 0x55}, "HP"},
+    // Linksys
     {{0x00, 0x50, 0xB6}, "Linksys"},
     {{0x00, 0x1A, 0x70}, "Linksys"},
-    {{0xAC, 0x84, 0xC6}, "TP-Link"},
-    {{0x00, 0x17, 0x88}, "Philips"},
-    {{0x00, 0x04, 0x4B}, "Nvidia"},
-    {{0x48, 0x2C, 0xA0}, "Xiaomi"},
-    {{0x7C, 0x1E, 0x52}, "Huawei"},
-    {{0x00, 0x26, 0x5E}, "Hon Hai/Foxconn"},
-    {{0x00, 0x1A, 0xA0}, "Dell"},
-    {{0x54, 0xEE, 0x75}, "Wistron"},
-    {{0xFC, 0xAA, 0x14}, "Giga-Byte"},
-    {{0xE4, 0x5F, 0x01}, "Raspberry"},
+    {{0x00, 0x04, 0x5A}, "Linksys"},
+    {{0x00, 0x06, 0x25}, "Linksys"},
+    {{0x00, 0x0C, 0x41}, "Linksys"},
+    {{0x00, 0x0F, 0x66}, "Linksys"},
+    {{0x00, 0x12, 0x17}, "Linksys"},
+    {{0x00, 0x13, 0x10}, "Linksys"},
+    {{0x00, 0x14, 0xBF}, "Linksys"},
+    {{0x00, 0x16, 0xB6}, "Linksys"},
+    {{0x00, 0x18, 0x39}, "Linksys"},
+    {{0x00, 0x18, 0xF8}, "Linksys"},
+    {{0x00, 0x1C, 0x10}, "Linksys"},
+    {{0x00, 0x1D, 0x7E}, "Linksys"},
+    {{0x00, 0x1E, 0xE5}, "Linksys"},
+    {{0x00, 0x21, 0x29}, "Linksys"},
+    {{0x00, 0x22, 0x6B}, "Linksys"},
+    {{0x00, 0x23, 0x69}, "Linksys"},
+    {{0x00, 0x25, 0x9C}, "Linksys"},
+    // Espressif (ESP32/ESP8266)
     {{0x24, 0x0A, 0xC4}, "Espressif"},
     {{0xA4, 0xCF, 0x12}, "Espressif"},
     {{0x7C, 0xDF, 0xA1}, "Espressif"},
-    {{0x30, 0xAE, 0xA4}, "Espressif"}
+    {{0x30, 0xAE, 0xA4}, "Espressif"},
+    {{0x24, 0x6F, 0x28}, "Espressif"},
+    {{0x24, 0xB2, 0xDE}, "Espressif"},
+    {{0x2C, 0x3A, 0xE8}, "Espressif"},
+    {{0x30, 0x83, 0x98}, "Espressif"},
+    {{0x3C, 0x61, 0x05}, "Espressif"},
+    {{0x3C, 0x71, 0xBF}, "Espressif"},
+    {{0x40, 0xF5, 0x20}, "Espressif"},
+    {{0x48, 0x3F, 0xDA}, "Espressif"},
+    {{0x4C, 0x11, 0xAE}, "Espressif"},
+    {{0x54, 0x5A, 0xA6}, "Espressif"},
+    {{0x5C, 0xCF, 0x7F}, "Espressif"},
+    {{0x60, 0x01, 0x94}, "Espressif"},
+    {{0x68, 0xC6, 0x3A}, "Espressif"},
+    {{0x84, 0x0D, 0x8E}, "Espressif"},
+    {{0x84, 0xCC, 0xA8}, "Espressif"},
+    {{0x84, 0xF3, 0xEB}, "Espressif"},
+    {{0x8C, 0xAA, 0xB5}, "Espressif"},
+    {{0x90, 0x97, 0xD5}, "Espressif"},
+    {{0x98, 0xF4, 0xAB}, "Espressif"},
+    {{0xA0, 0x20, 0xA6}, "Espressif"},
+    {{0xA4, 0x7B, 0x9D}, "Espressif"},
+    {{0xAC, 0x67, 0xB2}, "Espressif"},
+    {{0xAC, 0xD0, 0x74}, "Espressif"},
+    {{0xB4, 0xE6, 0x2D}, "Espressif"},
+    {{0xBC, 0xDD, 0xC2}, "Espressif"},
+    {{0xC4, 0x4F, 0x33}, "Espressif"},
+    {{0xC8, 0x2B, 0x96}, "Espressif"},
+    {{0xCC, 0x50, 0xE3}, "Espressif"},
+    {{0xD8, 0xA0, 0x1D}, "Espressif"},
+    {{0xD8, 0xBF, 0xC0}, "Espressif"},
+    {{0xDC, 0x4F, 0x22}, "Espressif"},
+    {{0xE8, 0xDB, 0x84}, "Espressif"},
+    {{0xEC, 0xFA, 0xBC}, "Espressif"},
+    {{0xF0, 0x08, 0xD1}, "Espressif"},
+    {{0xF4, 0xCF, 0xA2}, "Espressif"},
+    {{0xFC, 0xF5, 0xC4}, "Espressif"},
+    // Tenda
+    {{0xC8, 0x3A, 0x35}, "Tenda"},
+    {{0xC8, 0xD3, 0xA3}, "Tenda"},
+    {{0xD8, 0x32, 0x14}, "Tenda"},
+    {{0xCC, 0x2D, 0x21}, "Tenda"},
+    // Philips
+    {{0x00, 0x17, 0x88}, "Philips Hue"},
+    {{0xEC, 0xB5, 0xFA}, "Philips Hue"},
+    // Sonos
+    {{0x00, 0x0E, 0x58}, "Sonos"},
+    {{0x5C, 0xAA, 0xFD}, "Sonos"},
+    {{0x78, 0x28, 0xCA}, "Sonos"},
+    {{0x94, 0x9F, 0x3E}, "Sonos"},
+    {{0xB8, 0xE9, 0x37}, "Sonos"},
+    // Roku
+    {{0x00, 0x0D, 0x4B}, "Roku"},
+    {{0x08, 0x05, 0x81}, "Roku"},
+    {{0x10, 0x59, 0x32}, "Roku"},
+    {{0x20, 0xEF, 0xBD}, "Roku"},
+    {{0xB0, 0xA7, 0x37}, "Roku"},
+    {{0xB8, 0x3E, 0x59}, "Roku"},
+    {{0xD0, 0x4D, 0x2C}, "Roku"},
+    {{0xD8, 0x31, 0x34}, "Roku"},
+    // Nvidia
+    {{0x00, 0x04, 0x4B}, "Nvidia"},
+    {{0x48, 0xB0, 0x2D}, "Nvidia"},
+    // Intel
+    {{0x00, 0x02, 0xB3}, "Intel"},
+    {{0x00, 0x03, 0x47}, "Intel"},
+    {{0x00, 0x04, 0x23}, "Intel"},
+    {{0x00, 0x07, 0xE9}, "Intel"},
+    {{0x00, 0x0C, 0xF1}, "Intel"},
+    {{0x00, 0x0E, 0x0C}, "Intel"},
+    {{0x00, 0x0E, 0x35}, "Intel"},
+    {{0x00, 0x11, 0x11}, "Intel"},
+    {{0x00, 0x12, 0xF0}, "Intel"},
+    {{0x00, 0x13, 0x02}, "Intel"},
+    {{0x00, 0x13, 0x20}, "Intel"},
+    {{0x00, 0x13, 0xCE}, "Intel"},
+    {{0x00, 0x13, 0xE8}, "Intel"},
+    {{0x00, 0x15, 0x00}, "Intel"},
+    {{0x00, 0x15, 0x17}, "Intel"},
+    {{0x00, 0x16, 0x6F}, "Intel"},
+    {{0x00, 0x16, 0x76}, "Intel"},
+    {{0x00, 0x16, 0xEA}, "Intel"},
+    {{0x00, 0x16, 0xEB}, "Intel"},
+    {{0x00, 0x18, 0xDE}, "Intel"},
+    {{0x00, 0x19, 0xD1}, "Intel"},
+    {{0x00, 0x19, 0xD2}, "Intel"},
+    {{0x00, 0x1B, 0x21}, "Intel"},
+    {{0x00, 0x1B, 0x77}, "Intel"},
+    {{0x00, 0x1C, 0xBF}, "Intel"},
+    {{0x00, 0x1D, 0xE0}, "Intel"},
+    {{0x00, 0x1D, 0xE1}, "Intel"},
+    {{0x00, 0x1E, 0x64}, "Intel"},
+    {{0x00, 0x1E, 0x65}, "Intel"},
+    {{0x00, 0x1E, 0x67}, "Intel"},
+    {{0x00, 0x1F, 0x3B}, "Intel"},
+    {{0x00, 0x1F, 0x3C}, "Intel"},
+    {{0x00, 0x20, 0xA6}, "Intel"},
+    {{0x00, 0x21, 0x5C}, "Intel"},
+    {{0x00, 0x21, 0x5D}, "Intel"},
+    {{0x00, 0x21, 0x6A}, "Intel"},
+    {{0x00, 0x21, 0x6B}, "Intel"},
+    {{0x00, 0x22, 0xFA}, "Intel"},
+    {{0x00, 0x22, 0xFB}, "Intel"},
+    {{0x00, 0x23, 0x14}, "Intel"},
+    {{0x00, 0x24, 0xD6}, "Intel"},
+    {{0x00, 0x24, 0xD7}, "Intel"},
+    {{0x00, 0x26, 0xC6}, "Intel"},
+    {{0x00, 0x26, 0xC7}, "Intel"},
+    // Hon Hai/Foxconn
+    {{0x00, 0x26, 0x5E}, "Foxconn"},
+    {{0x54, 0xEE, 0x75}, "Wistron"},
+    {{0xFC, 0xAA, 0x14}, "Gigabyte"},
+    // LG
+    {{0x00, 0x1C, 0x62}, "LG"},
+    {{0x00, 0x1E, 0x75}, "LG"},
+    {{0x00, 0x1F, 0x6B}, "LG"},
+    {{0x00, 0x1F, 0xE3}, "LG"},
+    {{0x00, 0x22, 0xA9}, "LG"},
+    {{0x00, 0x24, 0x83}, "LG"},
+    {{0x00, 0x25, 0xE5}, "LG"},
+    {{0x00, 0x26, 0xE2}, "LG"},
+    {{0x10, 0x68, 0x3F}, "LG"},
+    {{0x14, 0xC9, 0x13}, "LG"},
+    {{0x20, 0x21, 0xA5}, "LG"},
+    {{0x28, 0x39, 0x26}, "LG"},
+    {{0x2C, 0x54, 0xCF}, "LG"},
+    {{0x34, 0x4D, 0xF7}, "LG"},
+    {{0x38, 0x8C, 0x50}, "LG"},
+    {{0x40, 0xB0, 0xFA}, "LG"},
+    {{0x58, 0x3F, 0x54}, "LG"},
+    {{0x5C, 0x25, 0xE6}, "LG"},
+    {{0x64, 0x99, 0x5D}, "LG"},
+    {{0x6C, 0xAD, 0xF8}, "LG"},
+    {{0x74, 0xA7, 0x22}, "LG"},
+    {{0x78, 0x5D, 0xC8}, "LG"},
+    {{0x88, 0xC9, 0xD0}, "LG"},
+    {{0x8C, 0x3A, 0xE3}, "LG"},
+    {{0x98, 0xD6, 0xF7}, "LG"},
+    {{0xA8, 0x16, 0xB2}, "LG"},
+    {{0xAC, 0x0D, 0x1B}, "LG"},
+    {{0xB4, 0xE6, 0x2A}, "LG"},
+    {{0xBC, 0xF5, 0xAC}, "LG"},
+    {{0xC4, 0x36, 0x6C}, "LG"},
+    {{0xC4, 0x9A, 0x02}, "LG"},
+    {{0xC8, 0x08, 0xE9}, "LG"},
+    {{0xCC, 0x2D, 0x8C}, "LG"},
+    {{0xD0, 0x13, 0xFD}, "LG"},
+    {{0xE8, 0x5B, 0x5B}, "LG"},
+    {{0xF8, 0x0D, 0xEA}, "LG"},
+    {{0xF8, 0xD0, 0xAC}, "LG"}
 };
-const int macVendorCount = 39;
+const int macVendorCount = 464;
 
 // Forward declarations
+void drawSplashScreen();
 void drawMainMenu();
+void drawIconMenu();
 void handleMainMenu();
 void drawHeader(const char* title);
 void drawStatus(const char* msg, uint16_t color);
 void connectToWiFi();
+void autoConnectWiFi();
+void saveWiFiCredentials(const String& ssid, const String& password);
+void loadWiFiCredentials();
 void runIPScanner();
 void runPortScanner();
 void runPingSweep();
@@ -200,8 +724,11 @@ String macToString(uint8_t* mac);
 bool arpScan(IPAddress ip, uint8_t* mac);
 void clearScreen();
 void waitForKey();
+bool checkEscapeKey();
 char getKeyInput();
 String getTextInput(const char* prompt, int maxLen);
+void drawIcon(int x, int y, int index, bool selected);
+void runPortScanOnHost(IPAddress target);
 
 // Setup
 void setup() {
@@ -211,17 +738,144 @@ void setup() {
     M5Cardputer.Display.setTextSize(1);
     M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_BG);
 
-    // Splash screen
-    M5Cardputer.Display.setTextDatum(MC_DATUM);
-    M5Cardputer.Display.setTextColor(COLOR_TITLE);
-    M5Cardputer.Display.drawString("Network Toolkit", SCREEN_W/2, 40);
-    M5Cardputer.Display.setTextColor(COLOR_TEXT);
-    M5Cardputer.Display.drawString("v1.0 - For Network Engineers", SCREEN_W/2, 60);
-    M5Cardputer.Display.drawString("Press any key...", SCREEN_W/2, 100);
-    M5Cardputer.Display.setTextDatum(TL_DATUM);
+    // Load saved WiFi credentials
+    loadWiFiCredentials();
 
-    waitForKey();
+    // Animated splash screen
+    drawSplashScreen();
+
+    // Try auto-connect if credentials saved
+    if(connectedSSID.length() > 0 && savedPassword.length() > 0) {
+        autoConnectWiFi();
+    }
+
     drawMainMenu();
+}
+
+// Animated Splash Screen
+void drawSplashScreen() {
+    clearScreen();
+
+    // Draw animated network pattern
+    for(int i = 0; i < 8; i++) {
+        int x = random(20, SCREEN_W - 20);
+        int y = random(20, 50);
+        M5Cardputer.Display.fillCircle(x, y, 3, COLOR_DARKGRAY);
+        delay(30);
+    }
+
+    // Draw connecting lines
+    for(int i = 0; i < 5; i++) {
+        int x1 = random(20, SCREEN_W - 20);
+        int y1 = random(20, 50);
+        int x2 = random(20, SCREEN_W - 20);
+        int y2 = random(20, 50);
+        M5Cardputer.Display.drawLine(x1, y1, x2, y2, COLOR_DARKGRAY);
+        delay(20);
+    }
+
+    // Main title with animation
+    M5Cardputer.Display.setTextDatum(MC_DATUM);
+    M5Cardputer.Display.setTextSize(2);
+
+    // Animate title appearance
+    String title = "NetToolkit";
+    int titleX = SCREEN_W / 2;
+    int titleY = 67;
+
+    for(int i = 0; i <= title.length(); i++) {
+        M5Cardputer.Display.setTextColor(COLOR_TITLE, COLOR_BG);
+        M5Cardputer.Display.drawString(title.substring(0, i), titleX, titleY);
+        delay(40);
+    }
+
+    // Version with glow effect
+    M5Cardputer.Display.setTextSize(1);
+    M5Cardputer.Display.setTextColor(COLOR_ACCENT);
+    M5Cardputer.Display.drawString("v10", titleX, titleY + 20);
+
+    // Animated loading bar
+    int barY = 105;
+    int barW = 160;
+    int barH = 8;
+    int barX = (SCREEN_W - barW) / 2;
+
+    M5Cardputer.Display.drawRoundRect(barX - 2, barY - 2, barW + 4, barH + 4, 4, COLOR_TITLE);
+
+    for(int i = 0; i <= barW; i += 4) {
+        // Gradient color effect
+        uint16_t col = (i < barW/3) ? COLOR_TITLE : (i < 2*barW/3) ? COLOR_SUCCESS : COLOR_ACCENT;
+        M5Cardputer.Display.fillRect(barX, barY, i, barH, col);
+        delay(8);
+    }
+
+    // Bottom text
+    M5Cardputer.Display.setTextColor(COLOR_LIGHTGRAY);
+    M5Cardputer.Display.drawString("For Network Engineers", titleX, 125);
+
+    delay(300);
+    M5Cardputer.Display.setTextDatum(TL_DATUM);
+    M5Cardputer.Display.setTextSize(1);
+}
+
+// Load WiFi credentials from flash
+void loadWiFiCredentials() {
+    preferences.begin("netwifi", true);  // Read-only
+    connectedSSID = preferences.getString("ssid", "");
+    savedPassword = preferences.getString("pass", "");
+    preferences.end();
+}
+
+// Save WiFi credentials to flash
+void saveWiFiCredentials(const String& ssid, const String& password) {
+    preferences.begin("netwifi", false);  // Read-write
+    preferences.putString("ssid", ssid);
+    preferences.putString("pass", password);
+    preferences.end();
+    connectedSSID = ssid;
+    savedPassword = password;
+}
+
+// Auto-connect to saved WiFi
+void autoConnectWiFi() {
+    clearScreen();
+    drawHeader("Auto-Connect");
+
+    M5Cardputer.Display.setTextSize(1);
+    M5Cardputer.Display.drawString("Connecting to:", 8, 35);
+    M5Cardputer.Display.setTextColor(COLOR_TITLE);
+    M5Cardputer.Display.drawString(connectedSSID, 8, 50);
+    M5Cardputer.Display.setTextColor(COLOR_TEXT);
+
+    WiFi.begin(connectedSSID.c_str(), savedPassword.c_str());
+
+    int attempts = 0;
+    int dotX = 8;
+    while(WiFi.status() != WL_CONNECTED && attempts < 20) {
+        delay(300);
+        M5Cardputer.Display.fillCircle(dotX, 75, 3, COLOR_WARNING);
+        dotX += 10;
+        if(dotX > SCREEN_W - 20) dotX = 8;
+        attempts++;
+    }
+
+    if(WiFi.status() == WL_CONNECTED) {
+        wifiConnected = true;
+        localIP = WiFi.localIP();
+        gateway = WiFi.gatewayIP();
+        subnet = WiFi.subnetMask();
+
+        M5Cardputer.Display.setTextColor(COLOR_SUCCESS);
+        M5Cardputer.Display.drawString("Connected!", 8, 95);
+        M5Cardputer.Display.setTextColor(COLOR_TEXT);
+        M5Cardputer.Display.drawString(localIP.toString(), 8, 110);
+        delay(1000);
+    } else {
+        M5Cardputer.Display.setTextColor(COLOR_ERROR);
+        M5Cardputer.Display.drawString("Failed - manual connect", 8, 95);
+        M5Cardputer.Display.setTextColor(COLOR_TEXT);
+        delay(1500);
+    }
 }
 
 // Main loop
@@ -244,84 +898,159 @@ void clearScreen() {
     M5Cardputer.Display.fillScreen(COLOR_BG);
 }
 
-// Draw header
+// Draw header - improved style
 void drawHeader(const char* title) {
-    M5Cardputer.Display.fillRect(0, 0, SCREEN_W, 16, COLOR_TITLE);
-    M5Cardputer.Display.setTextColor(COLOR_BG, COLOR_TITLE);
-    M5Cardputer.Display.drawString(title, 4, 2);
+    // Gradient-style header
+    M5Cardputer.Display.fillRect(0, 0, SCREEN_W, 20, COLOR_DARKGRAY);
+    M5Cardputer.Display.drawFastHLine(0, 19, SCREEN_W, COLOR_TITLE);
 
-    // Show WiFi status
+    M5Cardputer.Display.setTextDatum(MC_DATUM);
+    M5Cardputer.Display.setTextColor(COLOR_TITLE, COLOR_DARKGRAY);
+    M5Cardputer.Display.drawString(title, SCREEN_W/2, 10);
+    M5Cardputer.Display.setTextDatum(TL_DATUM);
+
+    // Show WiFi status with icon
     if(wifiConnected) {
-        M5Cardputer.Display.drawString("*", SCREEN_W - 10, 2);
+        M5Cardputer.Display.fillCircle(SCREEN_W - 12, 10, 5, COLOR_SUCCESS);
+    } else {
+        M5Cardputer.Display.drawCircle(SCREEN_W - 12, 10, 5, COLOR_ERROR);
     }
     M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_BG);
 }
 
-// Draw status line at bottom
+// Draw status line at bottom - improved style
 void drawStatus(const char* msg, uint16_t color) {
-    M5Cardputer.Display.fillRect(0, SCREEN_H - 14, SCREEN_W, 14, COLOR_BG);
-    M5Cardputer.Display.setTextColor(color, COLOR_BG);
-    M5Cardputer.Display.drawString(msg, 4, SCREEN_H - 12);
+    M5Cardputer.Display.fillRect(0, SCREEN_H - 16, SCREEN_W, 16, COLOR_DARKGRAY);
+    M5Cardputer.Display.setTextDatum(MC_DATUM);
+    M5Cardputer.Display.setTextColor(color, COLOR_DARKGRAY);
+    M5Cardputer.Display.drawString(msg, SCREEN_W/2, SCREEN_H - 8);
+    M5Cardputer.Display.setTextDatum(TL_DATUM);
     M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_BG);
 }
 
-// Draw main menu
+// Draw single icon
+void drawIcon(int x, int y, int index, bool selected) {
+    uint16_t bgColor = selected ? menuItems[index].color : COLOR_DARKGRAY;
+    uint16_t borderColor = selected ? COLOR_TEXT : COLOR_DARKGRAY;
+
+    // Draw icon background (rounded rect)
+    M5Cardputer.Display.fillRoundRect(x, y, ICON_SIZE, ICON_SIZE, 8, bgColor);
+
+    if(selected) {
+        M5Cardputer.Display.drawRoundRect(x, y, ICON_SIZE, ICON_SIZE, 8, COLOR_TEXT);
+        M5Cardputer.Display.drawRoundRect(x+1, y+1, ICON_SIZE-2, ICON_SIZE-2, 7, COLOR_TEXT);
+    }
+
+    // Draw icon letter
+    M5Cardputer.Display.setTextDatum(MC_DATUM);
+    M5Cardputer.Display.setTextSize(2);
+    M5Cardputer.Display.setTextColor(selected ? COLOR_BG : COLOR_LIGHTGRAY);
+    M5Cardputer.Display.drawString(menuItems[index].icon, x + ICON_SIZE/2, y + ICON_SIZE/2);
+    M5Cardputer.Display.setTextSize(1);
+    M5Cardputer.Display.setTextDatum(TL_DATUM);
+}
+
+// Draw main menu with horizontal scrolling icons
 void drawMainMenu() {
     clearScreen();
-    drawHeader("Network Toolkit");
 
-    int visibleItems = 7;
-    int startY = 20;
-    int itemHeight = 14;
+    // Header bar
+    M5Cardputer.Display.fillRect(0, 0, SCREEN_W, 22, COLOR_DARKGRAY);
+    M5Cardputer.Display.setTextDatum(MC_DATUM);
+    M5Cardputer.Display.setTextSize(1);
+    M5Cardputer.Display.setTextColor(COLOR_TITLE);
+    M5Cardputer.Display.drawString("NetToolkit v10", SCREEN_W/2, 11);
 
-    for(int i = 0; i < visibleItems && (i + menuOffset) < mainMenuCount; i++) {
-        int idx = i + menuOffset;
-        int y = startY + (i * itemHeight);
-
-        if(idx == menuSelection) {
-            M5Cardputer.Display.fillRect(0, y, SCREEN_W, itemHeight, COLOR_MENU_SEL);
-            M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_MENU_SEL);
-        } else {
-            M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_BG);
-        }
-
-        M5Cardputer.Display.drawString(mainMenuItems[idx], 8, y + 2);
+    // WiFi status indicator
+    if(wifiConnected) {
+        M5Cardputer.Display.fillCircle(SCREEN_W - 15, 11, 5, COLOR_SUCCESS);
+    } else {
+        M5Cardputer.Display.drawCircle(SCREEN_W - 15, 11, 5, COLOR_ERROR);
     }
 
-    M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_BG);
+    // Calculate visible icons (show 3-4 icons at once)
+    int visibleIcons = 4;
+    int totalWidth = visibleIcons * (ICON_SIZE + ICON_SPACING) - ICON_SPACING;
+    int startX = (SCREEN_W - totalWidth) / 2;
 
-    // Instructions
-    drawStatus("UP/DOWN:Nav ENTER:Select", COLOR_TEXT);
+    // Calculate offset for smooth scrolling
+    int firstVisible = menuSelection - 1;
+    if(firstVisible < 0) firstVisible = 0;
+    if(firstVisible > mainMenuCount - visibleIcons) firstVisible = mainMenuCount - visibleIcons;
+
+    // Draw icons
+    for(int i = 0; i < visibleIcons && (firstVisible + i) < mainMenuCount; i++) {
+        int idx = firstVisible + i;
+        int x = startX + i * (ICON_SIZE + ICON_SPACING);
+        drawIcon(x, ICON_Y, idx, idx == menuSelection);
+    }
+
+    // Draw scroll indicators
+    M5Cardputer.Display.setTextColor(COLOR_LIGHTGRAY);
+    if(firstVisible > 0) {
+        M5Cardputer.Display.fillTriangle(8, ICON_Y + ICON_SIZE/2, 16, ICON_Y + ICON_SIZE/2 - 8,
+                                          16, ICON_Y + ICON_SIZE/2 + 8, COLOR_LIGHTGRAY);
+    }
+    if(firstVisible + visibleIcons < mainMenuCount) {
+        M5Cardputer.Display.fillTriangle(SCREEN_W - 8, ICON_Y + ICON_SIZE/2,
+                                          SCREEN_W - 16, ICON_Y + ICON_SIZE/2 - 8,
+                                          SCREEN_W - 16, ICON_Y + ICON_SIZE/2 + 8, COLOR_LIGHTGRAY);
+    }
+
+    // Selected item name (larger font)
+    M5Cardputer.Display.setTextDatum(MC_DATUM);
+    M5Cardputer.Display.setTextSize(1);
+    M5Cardputer.Display.setTextColor(COLOR_TEXT);
+    M5Cardputer.Display.drawString(menuItems[menuSelection].name, SCREEN_W/2, ICON_Y + ICON_SIZE + 15);
+
+    // Instructions at bottom
+    M5Cardputer.Display.fillRect(0, SCREEN_H - 18, SCREEN_W, 18, COLOR_DARKGRAY);
+    M5Cardputer.Display.setTextColor(COLOR_LIGHTGRAY);
+    M5Cardputer.Display.drawString("</>:Navigate  ENTER:Select", SCREEN_W/2, SCREEN_H - 9);
+
+    M5Cardputer.Display.setTextDatum(TL_DATUM);
+    M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_BG);
 }
 
-// Handle main menu input
+// Check if ESC key is pressed (improved detection)
+bool checkEscapeKey() {
+    M5Cardputer.update();
+    if(M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
+        Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
+        // Check for ESC key or '`' as alternative
+        if(M5Cardputer.Keyboard.isKeyPressed(KEY_ESC) ||
+           keyWord(status.word) == "`" ||
+           keyWord(status.word) == "\\") {
+            stopRequested = true;
+            return true;
+        }
+    }
+    return false;
+}
+
+// Handle main menu input - horizontal navigation
 void handleMainMenu() {
     if(M5Cardputer.Keyboard.isChange()) {
         if(M5Cardputer.Keyboard.isPressed()) {
             Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
+            String key = keyWord(status.word);
 
-            // Up arrow or ; key
-            if(keyWord(status.word) == ";" || M5Cardputer.Keyboard.isKeyPressed(KEY_UP)) {
+            // Left navigation: , or ; or left bracket
+            if(key == "," || key == ";" || key == "[") {
                 if(menuSelection > 0) {
                     menuSelection--;
-                    if(menuSelection < menuOffset) {
-                        menuOffset = menuSelection;
-                    }
                     drawMainMenu();
                 }
             }
-            // Down arrow or . key
-            else if(keyWord(status.word) == "." || M5Cardputer.Keyboard.isKeyPressed(KEY_DOWN)) {
+            // Right navigation: . or / or right bracket
+            else if(key == "." || key == "/" || key == "]") {
                 if(menuSelection < mainMenuCount - 1) {
                     menuSelection++;
-                    if(menuSelection >= menuOffset + 7) {
-                        menuOffset = menuSelection - 6;
-                    }
                     drawMainMenu();
                 }
             }
             // Enter
-            else if(keyWord(status.word) == "\n" || M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
+            else if(key == "\n" || M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
                 executeMenuItem(menuSelection);
             }
         }
@@ -372,28 +1101,59 @@ char getKeyInput() {
     }
 }
 
-// Get text input with on-screen keyboard
+// Get text input with on-screen keyboard - improved UI
 String getTextInput(const char* prompt, int maxLen) {
     String input = "";
     clearScreen();
     drawHeader(prompt);
 
-    M5Cardputer.Display.drawString("Type and press ENTER", 4, 30);
-    M5Cardputer.Display.drawString("ESC to cancel", 4, 45);
-    M5Cardputer.Display.fillRect(4, 70, SCREEN_W - 8, 20, TFT_DARKGREY);
+    M5Cardputer.Display.setTextColor(COLOR_LIGHTGRAY);
+    M5Cardputer.Display.drawString("Type and press ENTER", 8, 30);
+    M5Cardputer.Display.drawString("ESC or ` to cancel", 8, 45);
+    M5Cardputer.Display.setTextColor(COLOR_TEXT);
+
+    // Input box with border
+    M5Cardputer.Display.drawRoundRect(6, 65, SCREEN_W - 12, 28, 6, COLOR_TITLE);
+    M5Cardputer.Display.fillRoundRect(8, 67, SCREEN_W - 16, 24, 4, COLOR_DARKGRAY);
+
+    // Cursor blink timer
+    unsigned long lastBlink = millis();
+    bool cursorVisible = true;
 
     while(true) {
         M5Cardputer.update();
 
+        // Blink cursor
+        if(millis() - lastBlink > 500) {
+            cursorVisible = !cursorVisible;
+            lastBlink = millis();
+
+            // Redraw input with/without cursor
+            M5Cardputer.Display.fillRoundRect(8, 67, SCREEN_W - 16, 24, 4, COLOR_DARKGRAY);
+            M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_DARKGRAY);
+
+            String displayText = input;
+            if(cursorVisible) displayText += "_";
+
+            // Scroll text if too long
+            if(displayText.length() > 28) {
+                displayText = displayText.substring(displayText.length() - 28);
+            }
+
+            M5Cardputer.Display.drawString(displayText, 12, 73);
+            M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_BG);
+        }
+
         if(M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
             Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
+            String key = keyWord(status.word);
 
             // ESC - cancel
-            if(M5Cardputer.Keyboard.isKeyPressed(KEY_ESC)) {
+            if(M5Cardputer.Keyboard.isKeyPressed(KEY_ESC) || key == "`") {
                 return "";
             }
             // Enter - confirm
-            if(keyWord(status.word) == "\n" || M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
+            if(key == "\n" || M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
                 return input;
             }
             // Backspace
@@ -404,16 +1164,26 @@ String getTextInput(const char* prompt, int maxLen) {
             }
             // Regular character
             else if(status.word.size() > 0 && input.length() < maxLen) {
-                input += keyWord(status.word);
+                input += key;
             }
 
-            // Update display
-            M5Cardputer.Display.fillRect(4, 70, SCREEN_W - 8, 20, TFT_DARKGREY);
-            M5Cardputer.Display.setTextColor(COLOR_TEXT, TFT_DARKGREY);
-            M5Cardputer.Display.drawString(input.c_str(), 8, 74);
+            // Force cursor visible on input
+            cursorVisible = true;
+            lastBlink = millis();
+
+            // Update display immediately
+            M5Cardputer.Display.fillRoundRect(8, 67, SCREEN_W - 16, 24, 4, COLOR_DARKGRAY);
+            M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_DARKGRAY);
+
+            String displayText = input + "_";
+            if(displayText.length() > 28) {
+                displayText = displayText.substring(displayText.length() - 28);
+            }
+
+            M5Cardputer.Display.drawString(displayText, 12, 73);
             M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_BG);
         }
-        delay(50);
+        delay(30);
     }
 }
 
@@ -423,7 +1193,10 @@ void connectToWiFi() {
     drawHeader("WiFi Connect");
 
     // Scan networks
-    drawStatus("Scanning networks...", COLOR_WARNING);
+    M5Cardputer.Display.setTextSize(1);
+    M5Cardputer.Display.drawString("Scanning networks...", 8, 50);
+    drawStatus("Please wait...", COLOR_WARNING);
+
     int n = WiFi.scanNetworks();
 
     if(n == 0) {
@@ -438,50 +1211,69 @@ void connectToWiFi() {
 
     int selection = 0;
     int offset = 0;
-    int visibleItems = 6;
+    int visibleItems = 5;
+    int itemHeight = 18;
+
+    bool needsRedraw = true;
 
     while(true) {
-        // Draw network list
-        for(int i = 0; i < visibleItems && (i + offset) < n; i++) {
-            int idx = i + offset;
-            int y = 20 + (i * 14);
+        if(needsRedraw) {
+            // Clear list area only
+            M5Cardputer.Display.fillRect(0, 20, SCREEN_W, SCREEN_H - 40, COLOR_BG);
 
-            if(idx == selection) {
-                M5Cardputer.Display.fillRect(0, y, SCREEN_W, 14, COLOR_MENU_SEL);
-                M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_MENU_SEL);
-            } else {
-                M5Cardputer.Display.fillRect(0, y, SCREEN_W, 14, COLOR_BG);
-                M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_BG);
+            // Draw network list with larger spacing
+            for(int i = 0; i < visibleItems && (i + offset) < n; i++) {
+                int idx = i + offset;
+                int y = 22 + (i * itemHeight);
+
+                if(idx == selection) {
+                    M5Cardputer.Display.fillRoundRect(2, y, SCREEN_W - 4, itemHeight - 2, 4, COLOR_MENU_SEL);
+                    M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_MENU_SEL);
+                } else {
+                    M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_BG);
+                }
+
+                String ssid = WiFi.SSID(idx);
+                if(ssid.length() > 18) ssid = ssid.substring(0, 15) + "...";
+                int rssi = WiFi.RSSI(idx);
+
+                // Draw signal bars
+                int bars = (rssi > -50) ? 4 : (rssi > -60) ? 3 : (rssi > -70) ? 2 : 1;
+                int barX = SCREEN_W - 30;
+                for(int b = 0; b < 4; b++) {
+                    uint16_t barColor = (b < bars) ? COLOR_SUCCESS : COLOR_DARKGRAY;
+                    M5Cardputer.Display.fillRect(barX + b*5, y + 12 - b*3, 4, 4 + b*3, barColor);
+                }
+
+                M5Cardputer.Display.drawString(ssid.c_str(), 8, y + 3);
             }
 
-            String ssid = WiFi.SSID(idx);
-            if(ssid.length() > 20) ssid = ssid.substring(0, 17) + "...";
-            int rssi = WiFi.RSSI(idx);
-            String line = ssid + " " + String(rssi) + "dBm";
-            M5Cardputer.Display.drawString(line.c_str(), 4, y + 2);
+            M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_BG);
+            drawStatus(";/.:Nav ENTER:Select ESC:Back", COLOR_LIGHTGRAY);
+            needsRedraw = false;
         }
-
-        M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_BG);
-        drawStatus("ENTER:Select ESC:Back", COLOR_TEXT);
 
         // Handle input
         M5Cardputer.update();
         if(M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
             Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
+            String key = keyWord(status.word);
 
-            if(M5Cardputer.Keyboard.isKeyPressed(KEY_ESC)) {
+            if(M5Cardputer.Keyboard.isKeyPressed(KEY_ESC) || key == "`") {
                 WiFi.scanDelete();
                 return;
             }
-            if(keyWord(status.word) == ";" && selection > 0) {
+            if((key == ";" || key == ",") && selection > 0) {
                 selection--;
                 if(selection < offset) offset = selection;
+                needsRedraw = true;
             }
-            if(keyWord(status.word) == "." && selection < n - 1) {
+            if((key == "." || key == "/") && selection < n - 1) {
                 selection++;
                 if(selection >= offset + visibleItems) offset++;
+                needsRedraw = true;
             }
-            if(keyWord(status.word) == "\n" || M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
+            if(key == "\n" || M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
                 String selectedSSID = WiFi.SSID(selection);
                 WiFi.scanDelete();
 
@@ -492,14 +1284,24 @@ void connectToWiFi() {
                 // Connect
                 clearScreen();
                 drawHeader("Connecting...");
-                drawStatus(selectedSSID.c_str(), COLOR_WARNING);
+                M5Cardputer.Display.setTextSize(1);
+                M5Cardputer.Display.drawString("Network:", 8, 35);
+                M5Cardputer.Display.setTextColor(COLOR_TITLE);
+                M5Cardputer.Display.drawString(selectedSSID, 8, 50);
+                M5Cardputer.Display.setTextColor(COLOR_TEXT);
 
                 WiFi.begin(selectedSSID.c_str(), password.c_str());
 
                 int attempts = 0;
+                int dotX = 8;
                 while(WiFi.status() != WL_CONNECTED && attempts < 30) {
-                    delay(500);
-                    M5Cardputer.Display.drawString(".", 4 + (attempts * 6), 50);
+                    delay(300);
+                    M5Cardputer.Display.fillCircle(dotX, 75, 3, COLOR_WARNING);
+                    dotX += 10;
+                    if(dotX > SCREEN_W - 20) {
+                        dotX = 8;
+                        M5Cardputer.Display.fillRect(8, 70, SCREEN_W - 16, 15, COLOR_BG);
+                    }
                     attempts++;
                 }
 
@@ -510,14 +1312,26 @@ void connectToWiFi() {
                     gateway = WiFi.gatewayIP();
                     subnet = WiFi.subnetMask();
 
+                    // Save credentials for auto-reconnect
+                    saveWiFiCredentials(selectedSSID, password);
+
                     clearScreen();
                     drawHeader("Connected!");
-                    M5Cardputer.Display.drawString(("IP: " + localIP.toString()).c_str(), 4, 30);
-                    M5Cardputer.Display.drawString(("GW: " + gateway.toString()).c_str(), 4, 45);
-                    M5Cardputer.Display.drawString(("Mask: " + subnet.toString()).c_str(), 4, 60);
+                    M5Cardputer.Display.setTextColor(COLOR_SUCCESS);
+                    M5Cardputer.Display.drawString("Successfully connected!", 8, 30);
+                    M5Cardputer.Display.setTextColor(COLOR_TEXT);
+                    M5Cardputer.Display.drawString(("IP: " + localIP.toString()).c_str(), 8, 50);
+                    M5Cardputer.Display.drawString(("GW: " + gateway.toString()).c_str(), 8, 65);
+                    M5Cardputer.Display.drawString(("Mask: " + subnet.toString()).c_str(), 8, 80);
+                    M5Cardputer.Display.setTextColor(COLOR_ACCENT);
+                    M5Cardputer.Display.drawString("Credentials saved!", 8, 100);
+                    M5Cardputer.Display.setTextColor(COLOR_TEXT);
                     drawStatus("Press any key...", COLOR_SUCCESS);
                 } else {
-                    drawStatus("Connection failed!", COLOR_ERROR);
+                    M5Cardputer.Display.setTextColor(COLOR_ERROR);
+                    M5Cardputer.Display.drawString("Connection failed!", 8, 90);
+                    M5Cardputer.Display.setTextColor(COLOR_TEXT);
+                    drawStatus("Press any key...", COLOR_ERROR);
                 }
 
                 waitForKey();
@@ -571,12 +1385,15 @@ bool arpScan(IPAddress targetIP, uint8_t* mac) {
     return false;
 }
 
-// IP Scanner
+// IP Scanner - FIXED version
 void runIPScanner() {
     if(!wifiConnected) {
         clearScreen();
         drawHeader("IP Scanner");
-        drawStatus("Connect to WiFi first!", COLOR_ERROR);
+        M5Cardputer.Display.setTextColor(COLOR_ERROR);
+        M5Cardputer.Display.drawString("Connect to WiFi first!", 8, 50);
+        M5Cardputer.Display.setTextColor(COLOR_TEXT);
+        drawStatus("Press any key...", COLOR_ERROR);
         waitForKey();
         return;
     }
@@ -585,30 +1402,48 @@ void runIPScanner() {
     drawHeader("IP Scanner");
 
     scanResults.count = 0;
+    stopRequested = false;
 
-    // Calculate network range
-    uint32_t ip = (uint32_t)localIP;
-    uint32_t mask = (uint32_t)subnet;
-    uint32_t network = ip & mask;
-    uint32_t broadcast = network | (~mask);
+    // Calculate network range CORRECTLY
+    // Use the actual IP octets directly
+    int baseOctet1 = localIP[0];
+    int baseOctet2 = localIP[1];
+    int baseOctet3 = localIP[2];
 
     int startHost = 1;
     int endHost = 254;
 
-    M5Cardputer.Display.drawString("Scanning network...", 4, 25);
-    M5Cardputer.Display.drawString(("Range: " + IPAddress(network + 1).toString() + " - " +
-                                    IPAddress(broadcast - 1).toString()).c_str(), 4, 40);
+    // Display correct range
+    String rangeStart = String(baseOctet1) + "." + String(baseOctet2) + "." + String(baseOctet3) + ".1";
+    String rangeEnd = String(baseOctet1) + "." + String(baseOctet2) + "." + String(baseOctet3) + ".254";
+
+    M5Cardputer.Display.drawString("Scanning network...", 8, 28);
+    M5Cardputer.Display.setTextColor(COLOR_TITLE);
+    M5Cardputer.Display.drawString(rangeStart + " - " + rangeEnd, 8, 43);
+    M5Cardputer.Display.setTextColor(COLOR_TEXT);
 
     // Progress bar
-    M5Cardputer.Display.drawRect(4, 60, SCREEN_W - 8, 12, COLOR_TEXT);
+    M5Cardputer.Display.drawRoundRect(8, 60, SCREEN_W - 16, 14, 4, COLOR_TEXT);
+
+    // ESC hint
+    M5Cardputer.Display.setTextColor(COLOR_LIGHTGRAY);
+    M5Cardputer.Display.drawString("ESC or ` to stop", 8, SCREEN_H - 25);
+    M5Cardputer.Display.setTextColor(COLOR_TEXT);
 
     int found = 0;
     for(int i = startHost; i <= endHost && i <= MAX_HOSTS; i++) {
-        // Update progress
-        int progress = (i * (SCREEN_W - 10)) / endHost;
-        M5Cardputer.Display.fillRect(5, 61, progress, 10, COLOR_SUCCESS);
+        // Update progress bar
+        int progress = (i * (SCREEN_W - 20)) / endHost;
+        M5Cardputer.Display.fillRoundRect(10, 62, progress, 10, 2, COLOR_SUCCESS);
 
-        IPAddress targetIP(localIP[0], localIP[1], localIP[2], i);
+        // Update current IP being scanned
+        M5Cardputer.Display.fillRect(8, 78, SCREEN_W - 16, 12, COLOR_BG);
+        M5Cardputer.Display.setTextColor(COLOR_LIGHTGRAY);
+        M5Cardputer.Display.drawString("Checking: " + String(baseOctet1) + "." +
+                                        String(baseOctet2) + "." + String(baseOctet3) + "." + String(i), 8, 78);
+        M5Cardputer.Display.setTextColor(COLOR_TEXT);
+
+        IPAddress targetIP(baseOctet1, baseOctet2, baseOctet3, i);
 
         // Skip our own IP
         if(targetIP == localIP) {
@@ -634,23 +1469,27 @@ void runIPScanner() {
             found++;
 
             // Show found count
-            M5Cardputer.Display.fillRect(4, 80, SCREEN_W - 8, 14, COLOR_BG);
-            M5Cardputer.Display.drawString(("Found: " + String(found) + " hosts").c_str(), 4, 80);
+            M5Cardputer.Display.fillRect(8, 95, SCREEN_W - 16, 14, COLOR_BG);
+            M5Cardputer.Display.setTextColor(COLOR_SUCCESS);
+            M5Cardputer.Display.drawString("Found: " + String(found) + " hosts", 8, 95);
+            M5Cardputer.Display.setTextColor(COLOR_TEXT);
         }
 
-        // Check for ESC to abort
-        M5Cardputer.update();
-        if(M5Cardputer.Keyboard.isKeyPressed(KEY_ESC)) {
+        // Check for ESC to abort - improved detection
+        if(checkEscapeKey()) {
+            M5Cardputer.Display.setTextColor(COLOR_WARNING);
+            M5Cardputer.Display.drawString("Scan stopped by user", 8, 110);
+            M5Cardputer.Display.setTextColor(COLOR_TEXT);
+            delay(500);
             break;
         }
     }
 
     // Show results
-    clearScreen();
-    drawHeader("Scan Results");
-
     if(scanResults.count == 0) {
-        M5Cardputer.Display.drawString("No hosts found", 4, 40);
+        clearScreen();
+        drawHeader("Scan Results");
+        M5Cardputer.Display.drawString("No hosts found", 8, 50);
         drawStatus("Press any key...", COLOR_TEXT);
         waitForKey();
         return;
@@ -658,78 +1497,123 @@ void runIPScanner() {
 
     int selection = 0;
     int offset = 0;
-    int visibleItems = 6;
+    int visibleItems = 5;
+    int itemHeight = 18;
+    bool needsRedraw = true;
+    stopRequested = false;
 
     while(true) {
-        clearScreen();
-        drawHeader(("Found " + String(scanResults.count) + " hosts").c_str());
+        // Only redraw when needed - FIXES FLASHING
+        if(needsRedraw) {
+            clearScreen();
+            drawHeader(("Found " + String(scanResults.count) + " hosts").c_str());
 
-        for(int i = 0; i < visibleItems && (i + offset) < scanResults.count; i++) {
-            int idx = i + offset;
-            int y = 20 + (i * 16);
+            for(int i = 0; i < visibleItems && (i + offset) < scanResults.count; i++) {
+                int idx = i + offset;
+                int y = 22 + (i * itemHeight);
 
-            if(idx == selection) {
-                M5Cardputer.Display.fillRect(0, y, SCREEN_W, 16, COLOR_MENU_SEL);
-                M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_MENU_SEL);
-            } else {
-                M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_BG);
+                if(idx == selection) {
+                    M5Cardputer.Display.fillRoundRect(2, y, SCREEN_W - 4, itemHeight - 2, 4, COLOR_MENU_SEL);
+                    M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_MENU_SEL);
+                } else {
+                    M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_BG);
+                }
+
+                String line = scanResults.hosts[idx].ip.toString();
+                String vendor = scanResults.hosts[idx].hostname;
+                if(vendor.length() > 12) vendor = vendor.substring(0, 10) + "..";
+
+                M5Cardputer.Display.drawString(line, 8, y + 2);
+                M5Cardputer.Display.setTextColor(COLOR_ACCENT, (idx == selection) ? COLOR_MENU_SEL : COLOR_BG);
+                M5Cardputer.Display.drawString(vendor, 130, y + 2);
             }
 
-            String line = scanResults.hosts[idx].ip.toString();
-            line += " " + scanResults.hosts[idx].hostname.substring(0, 10);
-            M5Cardputer.Display.drawString(line.c_str(), 4, y + 2);
+            M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_BG);
+            drawStatus(";/.:Nav ENTER:Details ESC:Back", COLOR_LIGHTGRAY);
+            needsRedraw = false;
         }
-
-        M5Cardputer.Display.setTextColor(COLOR_TEXT, COLOR_BG);
-        drawStatus("ENTER:Details ESC:Back", COLOR_TEXT);
 
         // Handle input
         M5Cardputer.update();
         if(M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
             Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
+            String key = keyWord(status.word);
 
-            if(M5Cardputer.Keyboard.isKeyPressed(KEY_ESC)) return;
+            // ESC to exit - FIXED
+            if(M5Cardputer.Keyboard.isKeyPressed(KEY_ESC) || key == "`" || key == "\\") {
+                return;
+            }
 
-            if(keyWord(status.word) == ";" && selection > 0) {
+            // Navigation
+            if((key == ";" || key == ",") && selection > 0) {
                 selection--;
                 if(selection < offset) offset = selection;
+                needsRedraw = true;
             }
-            if(keyWord(status.word) == "." && selection < scanResults.count - 1) {
+            if((key == "." || key == "/") && selection < scanResults.count - 1) {
                 selection++;
                 if(selection >= offset + visibleItems) offset++;
+                needsRedraw = true;
             }
-            if(keyWord(status.word) == "\n") {
+
+            // Show details - FIXED
+            if(key == "\n" || M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
                 // Show host details
                 clearScreen();
                 drawHeader("Host Details");
 
                 NetworkHost& h = scanResults.hosts[selection];
-                M5Cardputer.Display.drawString(("IP: " + h.ip.toString()).c_str(), 4, 25);
-                M5Cardputer.Display.drawString(("MAC: " + macToString(h.mac)).c_str(), 4, 40);
-                M5Cardputer.Display.drawString(("Vendor: " + h.hostname).c_str(), 4, 55);
 
-                // Quick ping
-                float avg = Ping.averageTime();
+                M5Cardputer.Display.setTextColor(COLOR_TITLE);
+                M5Cardputer.Display.drawString("IP Address:", 8, 25);
+                M5Cardputer.Display.setTextColor(COLOR_TEXT);
+                M5Cardputer.Display.drawString(h.ip.toString(), 100, 25);
+
+                M5Cardputer.Display.setTextColor(COLOR_TITLE);
+                M5Cardputer.Display.drawString("MAC:", 8, 40);
+                M5Cardputer.Display.setTextColor(COLOR_TEXT);
+                M5Cardputer.Display.drawString(macToString(h.mac), 100, 40);
+
+                M5Cardputer.Display.setTextColor(COLOR_TITLE);
+                M5Cardputer.Display.drawString("Vendor:", 8, 55);
+                M5Cardputer.Display.setTextColor(COLOR_ACCENT);
+                M5Cardputer.Display.drawString(h.hostname, 100, 55);
+                M5Cardputer.Display.setTextColor(COLOR_TEXT);
+
+                // Quick ping test
+                M5Cardputer.Display.drawString("Testing ping...", 8, 75);
                 if(Ping.ping(h.ip, 3)) {
-                    avg = Ping.averageTime();
+                    float avg = Ping.averageTime();
+                    M5Cardputer.Display.fillRect(8, 75, 150, 12, COLOR_BG);
+                    M5Cardputer.Display.setTextColor(COLOR_TITLE);
+                    M5Cardputer.Display.drawString("Latency:", 8, 75);
                     M5Cardputer.Display.setTextColor(COLOR_SUCCESS);
-                    M5Cardputer.Display.drawString(("Ping: " + String(avg, 1) + " ms").c_str(), 4, 70);
+                    M5Cardputer.Display.drawString(String(avg, 1) + " ms", 100, 75);
                 } else {
+                    M5Cardputer.Display.fillRect(8, 75, 150, 12, COLOR_BG);
                     M5Cardputer.Display.setTextColor(COLOR_ERROR);
-                    M5Cardputer.Display.drawString("Ping: Timeout", 4, 70);
+                    M5Cardputer.Display.drawString("Ping timeout", 8, 75);
                 }
                 M5Cardputer.Display.setTextColor(COLOR_TEXT);
 
-                drawStatus("P:PortScan ESC:Back", COLOR_TEXT);
+                drawStatus("P:PortScan  ESC/`:Back", COLOR_LIGHTGRAY);
 
-                while(true) {
+                // Wait for input in details view
+                bool inDetails = true;
+                while(inDetails) {
                     M5Cardputer.update();
                     if(M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
-                        if(M5Cardputer.Keyboard.isKeyPressed(KEY_ESC)) break;
                         Keyboard_Class::KeysState st = M5Cardputer.Keyboard.keysState();
-                        if(keyWord(st.word) == "p" || keyWord(st.word) == "P") {
+                        String k = keyWord(st.word);
+
+                        if(M5Cardputer.Keyboard.isKeyPressed(KEY_ESC) || k == "`" || k == "\\") {
+                            inDetails = false;
+                            needsRedraw = true;
+                        }
+                        if(k == "p" || k == "P") {
                             runPortScanOnHost(h.ip);
-                            break;
+                            inDetails = false;
+                            needsRedraw = true;
                         }
                     }
                     delay(50);
@@ -822,21 +1706,32 @@ void runPortScanner() {
     runPortScanOnHost(target);
 }
 
-// Ping Sweep
+// Ping Sweep - FIXED: can be stopped with ESC
 void runPingSweep() {
     if(!wifiConnected) {
         clearScreen();
         drawHeader("Ping Sweep");
-        drawStatus("Connect to WiFi first!", COLOR_ERROR);
+        M5Cardputer.Display.setTextColor(COLOR_ERROR);
+        M5Cardputer.Display.drawString("Connect to WiFi first!", 8, 50);
+        M5Cardputer.Display.setTextColor(COLOR_TEXT);
+        drawStatus("Press any key...", COLOR_ERROR);
         waitForKey();
         return;
     }
 
+    // Use current network by default
+    String defaultPrefix = String(localIP[0]) + "." + String(localIP[1]) + "." + String(localIP[2]);
+
     clearScreen();
     drawHeader("Ping Sweep");
+    M5Cardputer.Display.drawString("Default: " + defaultPrefix, 8, 25);
 
-    String targetStr = getTextInput("Enter IP (or prefix)", 15);
-    if(targetStr == "") return;
+    String targetStr = getTextInput("IP prefix (or Enter)", 15);
+
+    // Use current network if empty
+    if(targetStr == "") {
+        targetStr = defaultPrefix + ".1";
+    }
 
     // Parse target - support single IP or range
     IPAddress target;
@@ -856,24 +1751,46 @@ void runPingSweep() {
     if(!target.fromString(targetStr)) {
         clearScreen();
         drawHeader("Error");
-        drawStatus("Invalid IP!", COLOR_ERROR);
+        M5Cardputer.Display.setTextColor(COLOR_ERROR);
+        M5Cardputer.Display.drawString("Invalid IP format!", 8, 50);
+        M5Cardputer.Display.setTextColor(COLOR_TEXT);
+        drawStatus("Press any key...", COLOR_ERROR);
         waitForKey();
         return;
     }
 
     clearScreen();
     drawHeader("Ping Sweep");
-    M5Cardputer.Display.drawString(("Range: " + String(target[0]) + "." + String(target[1]) +
-                                    "." + String(target[2]) + ".1-254").c_str(), 4, 25);
 
-    M5Cardputer.Display.drawRect(4, 45, SCREEN_W - 8, 12, COLOR_TEXT);
+    String rangeStr = String(target[0]) + "." + String(target[1]) + "." + String(target[2]) + ".1-254";
+    M5Cardputer.Display.setTextColor(COLOR_TITLE);
+    M5Cardputer.Display.drawString("Range: " + rangeStr, 8, 25);
+    M5Cardputer.Display.setTextColor(COLOR_TEXT);
 
+    // Progress bar
+    M5Cardputer.Display.drawRoundRect(8, 42, SCREEN_W - 16, 12, 4, COLOR_TEXT);
+
+    // ESC hint - prominent display
+    M5Cardputer.Display.setTextColor(COLOR_WARNING);
+    M5Cardputer.Display.drawString("Press ESC or ` to STOP", 8, 57);
+    M5Cardputer.Display.setTextColor(COLOR_TEXT);
+
+    stopRequested = false;
     int responding = 0;
-    int y = 65;
+    int scanned = 0;
+    int listY = 72;
+    int maxListY = SCREEN_H - 20;
+
+    // Results storage for display
+    String results[20];
+    int resultCount = 0;
 
     for(int i = startIP; i <= endIP; i++) {
-        int progress = (i * (SCREEN_W - 10)) / 254;
-        M5Cardputer.Display.fillRect(5, 46, progress, 10, COLOR_SUCCESS);
+        scanned++;
+
+        // Update progress bar
+        int progress = (i * (SCREEN_W - 20)) / 254;
+        M5Cardputer.Display.fillRoundRect(10, 44, progress, 8, 2, COLOR_SUCCESS);
 
         IPAddress pingTarget(target[0], target[1], target[2], i);
 
@@ -881,20 +1798,47 @@ void runPingSweep() {
             responding++;
             float latency = Ping.averageTime();
 
-            if(y < SCREEN_H - 20) {
-                String line = pingTarget.toString() + " " + String(latency, 0) + "ms";
-                M5Cardputer.Display.drawString(line.c_str(), 4, y);
-                y += 10;
+            // Store result
+            if(resultCount < 20) {
+                results[resultCount++] = pingTarget.toString() + " " + String(latency, 0) + "ms";
+            }
+
+            // Display result if space available
+            if(listY < maxListY) {
+                M5Cardputer.Display.setTextColor(COLOR_SUCCESS);
+                M5Cardputer.Display.drawString(pingTarget.toString() + " " + String(latency, 0) + "ms", 8, listY);
+                M5Cardputer.Display.setTextColor(COLOR_TEXT);
+                listY += 11;
             }
         }
 
-        // Check ESC
-        M5Cardputer.update();
-        if(M5Cardputer.Keyboard.isKeyPressed(KEY_ESC)) break;
+        // Check ESC to stop - FIXED: improved detection
+        if(checkEscapeKey()) {
+            M5Cardputer.Display.fillRect(8, 57, SCREEN_W - 16, 12, COLOR_BG);
+            M5Cardputer.Display.setTextColor(COLOR_WARNING);
+            M5Cardputer.Display.drawString("STOPPED by user", 8, 57);
+            M5Cardputer.Display.setTextColor(COLOR_TEXT);
+            break;
+        }
     }
 
-    drawStatus(("Done: " + String(responding) + " responding").c_str(), COLOR_SUCCESS);
-    waitForKey();
+    // Show final summary
+    M5Cardputer.Display.fillRect(0, SCREEN_H - 18, SCREEN_W, 18, COLOR_DARKGRAY);
+    M5Cardputer.Display.setTextDatum(MC_DATUM);
+    M5Cardputer.Display.setTextColor(COLOR_SUCCESS);
+    M5Cardputer.Display.drawString(String(responding) + "/" + String(scanned) + " hosts responding", SCREEN_W/2, SCREEN_H - 9);
+    M5Cardputer.Display.setTextDatum(TL_DATUM);
+    M5Cardputer.Display.setTextColor(COLOR_TEXT);
+
+    // Wait for key to exit
+    stopRequested = false;
+    while(true) {
+        M5Cardputer.update();
+        if(M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
+            break;
+        }
+        delay(50);
+    }
 }
 
 // DNS Lookup
