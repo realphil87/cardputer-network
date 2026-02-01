@@ -24,6 +24,12 @@
 #include <lwip/netdb.h>
 #include "qrcode.h"
 
+// Helper: convert vector<char> to String (M5Cardputer 1.1.x compatibility)
+String keyWord(const std::vector<char>& word) {
+    if(word.empty()) return "";
+    return String(word.data(), word.size());
+}
+
 // Display colors
 #define COLOR_BG       TFT_BLACK
 #define COLOR_TEXT     TFT_WHITE
@@ -281,7 +287,7 @@ void handleMainMenu() {
             Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
 
             // Up arrow or ; key
-            if(status.word == ";" || M5Cardputer.Keyboard.isKeyPressed(KEY_UP)) {
+            if(keyWord(status.word) == ";" || M5Cardputer.Keyboard.isKeyPressed(KEY_UP)) {
                 if(menuSelection > 0) {
                     menuSelection--;
                     if(menuSelection < menuOffset) {
@@ -291,7 +297,7 @@ void handleMainMenu() {
                 }
             }
             // Down arrow or . key
-            else if(status.word == "." || M5Cardputer.Keyboard.isKeyPressed(KEY_DOWN)) {
+            else if(keyWord(status.word) == "." || M5Cardputer.Keyboard.isKeyPressed(KEY_DOWN)) {
                 if(menuSelection < mainMenuCount - 1) {
                     menuSelection++;
                     if(menuSelection >= menuOffset + 7) {
@@ -301,7 +307,7 @@ void handleMainMenu() {
                 }
             }
             // Enter
-            else if(status.word == "\n" || M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
+            else if(keyWord(status.word) == "\n" || M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
                 executeMenuItem(menuSelection);
             }
         }
@@ -344,7 +350,7 @@ char getKeyInput() {
         M5Cardputer.update();
         if(M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
             Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
-            if(status.word.length() > 0) {
+            if(status.word.size() > 0) {
                 return status.word[0];
             }
         }
@@ -373,7 +379,7 @@ String getTextInput(const char* prompt, int maxLen) {
                 return "";
             }
             // Enter - confirm
-            if(status.word == "\n" || M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
+            if(keyWord(status.word) == "\n" || M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
                 return input;
             }
             // Backspace
@@ -383,8 +389,8 @@ String getTextInput(const char* prompt, int maxLen) {
                 }
             }
             // Regular character
-            else if(status.word.length() > 0 && input.length() < maxLen) {
-                input += status.word;
+            else if(status.word.size() > 0 && input.length() < maxLen) {
+                input += keyWord(status.word);
             }
 
             // Update display
@@ -453,15 +459,15 @@ void connectToWiFi() {
                 WiFi.scanDelete();
                 return;
             }
-            if(status.word == ";" && selection > 0) {
+            if(keyWord(status.word) == ";" && selection > 0) {
                 selection--;
                 if(selection < offset) offset = selection;
             }
-            if(status.word == "." && selection < n - 1) {
+            if(keyWord(status.word) == "." && selection < n - 1) {
                 selection++;
                 if(selection >= offset + visibleItems) offset++;
             }
-            if(status.word == "\n" || M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
+            if(keyWord(status.word) == "\n" || M5Cardputer.Keyboard.isKeyPressed(KEY_ENTER)) {
                 String selectedSSID = WiFi.SSID(selection);
                 WiFi.scanDelete();
 
@@ -670,15 +676,15 @@ void runIPScanner() {
 
             if(M5Cardputer.Keyboard.isKeyPressed(KEY_ESC)) return;
 
-            if(status.word == ";" && selection > 0) {
+            if(keyWord(status.word) == ";" && selection > 0) {
                 selection--;
                 if(selection < offset) offset = selection;
             }
-            if(status.word == "." && selection < scanResults.count - 1) {
+            if(keyWord(status.word) == "." && selection < scanResults.count - 1) {
                 selection++;
                 if(selection >= offset + visibleItems) offset++;
             }
-            if(status.word == "\n") {
+            if(keyWord(status.word) == "\n") {
                 // Show host details
                 clearScreen();
                 drawHeader("Host Details");
@@ -707,7 +713,7 @@ void runIPScanner() {
                     if(M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
                         if(M5Cardputer.Keyboard.isKeyPressed(KEY_ESC)) break;
                         Keyboard_Class::KeysState st = M5Cardputer.Keyboard.keysState();
-                        if(st.word == "p" || st.word == "P") {
+                        if(keyWord(st.word) == "p" || keyWord(st.word) == "P") {
                             runPortScanOnHost(h.ip);
                             break;
                         }
@@ -1244,15 +1250,15 @@ void scanWiFiNetworks() {
                 WiFi.scanDelete();
                 return;
             }
-            if(status.word == ";" && selection > 0) {
+            if(keyWord(status.word) == ";" && selection > 0) {
                 selection--;
                 if(selection < offset) offset = selection;
             }
-            if(status.word == "." && selection < n - 1) {
+            if(keyWord(status.word) == "." && selection < n - 1) {
                 selection++;
                 if(selection >= offset + visibleItems) offset++;
             }
-            if(status.word == "\n") {
+            if(keyWord(status.word) == "\n") {
                 // Show network details
                 clearScreen();
                 drawHeader("Network Details");
