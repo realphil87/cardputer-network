@@ -1,22 +1,22 @@
 /**
  * ============================================================
- *  TIMBRATURE QR - Sistema di Timbratura per Piccole Attività
+ *  TIMBRATURE QR - La Tienda de Juan
  * ============================================================
  *
- *  Costo: ZERO (usa Google Sheets + Apps Script)
- *  Anti-imbroglio: Geolocalizzazione + PIN personale
+ *  Costo: ZERO (Google Sheets + Apps Script)
+ *  Anti-imbroglio: GPS + PIN personale
  *  Setup: 10 minuti
  *
  *  ISTRUZIONI:
  *  1. Crea un nuovo Google Sheet
- *  2. Vai su Estensioni → Apps Script
+ *  2. Estensioni → Apps Script
  *  3. Incolla questo codice in Code.gs
- *  4. Crea un file HTML chiamato "Pagina" e incolla il codice di Pagina.html
+ *  4. Crea file HTML "Pagina" e incolla Pagina.html
  *  5. Modifica la CONFIGURAZIONE qui sotto
- *  6. Fai Deploy → Nuova distribuzione → App web
+ *  6. Deploy → Nuova distribuzione → App web
  *     - Esegui come: Te stesso
  *     - Chi ha accesso: Chiunque
- *  7. Copia l'URL e generaci i QR code
+ *  7. Copia l'URL e facci UN QR code
  */
 
 // ============================================================
@@ -25,16 +25,16 @@
 
 const CONFIG = {
   // Coordinate GPS del bar
-  // Come trovarle: cerca il bar su Google Maps → tasto destro → "Che cosa c'è qui?"
-  // Clicca sulle coordinate che appaiono in basso e copiale
+  // Come trovarle: cerca "La Tienda de Juan" su Google Maps
+  // Tasto destro → "Che cosa c'è qui?" → copia le coordinate
   BAR_LAT: 45.4642,   // ← SOSTITUISCI con la latitudine del bar
   BAR_LNG: 9.1900,    // ← SOSTITUISCI con la longitudine del bar
 
   // Distanza massima dal bar (in metri) per poter timbrare
   MAX_DISTANZA_METRI: 100,
 
-  // Dipendenti: chiave = ID (usato nel QR), valore = { nome, pin }
-  // Il PIN è un codice di 4 cifre che il dipendente deve inserire
+  // Dipendenti: chiave = ID, valore = { nome, pin }
+  // Il PIN è un codice di 4 cifre scelto dal dipendente
   DIPENDENTI: {
     '1': { nome: 'Mario Rossi',    pin: '1234' },
     '2': { nome: 'Luigi Bianchi',  pin: '5678' },
@@ -42,7 +42,6 @@ const CONFIG = {
   }
 };
 
-// Nome del foglio dove scrivere le timbrature (viene creato automaticamente)
 const NOME_FOGLIO_TIMBRATURE = 'Timbrature';
 const NOME_FOGLIO_RIEPILOGO = 'Riepilogo';
 
@@ -51,76 +50,65 @@ const NOME_FOGLIO_RIEPILOGO = 'Riepilogo';
 // ============================================================
 
 /**
- * Gestisce le richieste GET (quando il dipendente apre il link dal QR code)
+ * Serve la pagina quando il dipendente scansiona il QR code.
+ * Un solo QR per tutti: la pagina mostra la lista dipendenti.
  */
-function doGet(e) {
-  const id = e && e.parameter && e.parameter.id ? e.parameter.id : null;
-
-  if (!id || !CONFIG.DIPENDENTI[id]) {
-    return HtmlService.createHtmlOutput(
-      '<html><body style="font-family:sans-serif;text-align:center;padding:40px;">' +
-      '<h1>⚠️ Errore</h1><p>QR code non valido o dipendente non trovato.</p>' +
-      '<p>Contatta il tuo datore di lavoro.</p></body></html>'
-    );
+function doGet() {
+  // Costruisci la lista nomi (senza PIN) da passare alla pagina
+  var listaDipendenti = {};
+  for (var id in CONFIG.DIPENDENTI) {
+    listaDipendenti[id] = CONFIG.DIPENDENTI[id].nome;
   }
 
-  const template = HtmlService.createTemplateFromFile('Pagina');
-  template.employeeId = id;
-  template.employeeName = CONFIG.DIPENDENTI[id].nome;
+  var template = HtmlService.createTemplateFromFile('Pagina');
+  template.dipendentiJSON = JSON.stringify(listaDipendenti);
   template.barLat = CONFIG.BAR_LAT;
   template.barLng = CONFIG.BAR_LNG;
   template.maxDistanza = CONFIG.MAX_DISTANZA_METRI;
 
   return template.evaluate()
-    .setTitle('Timbratura - ' + CONFIG.DIPENDENTI[id].nome)
+    .setTitle('Timbratura - La Tienda de Juan')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 /**
- * Registra una timbratura nel foglio Google Sheets
+ * Registra una timbratura nel foglio Google Sheets.
  * Chiamata dal client via google.script.run
  */
 function registraTimbratura(data) {
-  // Validazione dipendente
-  const dip = CONFIG.DIPENDENTI[data.employeeId];
+  var dip = CONFIG.DIPENDENTI[data.employeeId];
   if (!dip) {
     return { success: false, errore: 'Dipendente non trovato.' };
   }
 
-  // Validazione PIN
   if (data.pin !== dip.pin) {
     return { success: false, errore: 'PIN errato.' };
   }
 
-  // Validazione distanza
-  const distanza = calcolaDistanza(CONFIG.BAR_LAT, CONFIG.BAR_LNG, data.lat, data.lng);
+  var distanza = calcolaDistanza(CONFIG.BAR_LAT, CONFIG.BAR_LNG, data.lat, data.lng);
   if (distanza > CONFIG.MAX_DISTANZA_METRI) {
     return {
       success: false,
-      errore: 'Sei troppo lontano dal bar (' + Math.round(distanza) + 'm). ' +
-              'Devi essere entro ' + CONFIG.MAX_DISTANZA_METRI + 'm.'
+      errore: 'Sei troppo lontano (' + Math.round(distanza) + 'm). Devi essere entro ' + CONFIG.MAX_DISTANZA_METRI + 'm dal locale.'
     };
   }
 
-  // Determina se è ENTRATA o USCITA
-  const tipo = getProssimaAzione(data.employeeId);
-  const now = new Date();
+  var tipo = getProssimaAzione(data.employeeId);
+  var now = new Date();
 
-  // Scrivi nel foglio
-  const sheet = getOrCreateSheet(NOME_FOGLIO_TIMBRATURE);
+  var sheet = getOrCreateSheet(NOME_FOGLIO_TIMBRATURE);
   sheet.appendRow([
-    now,                           // A: Data/Ora
-    dip.nome,                      // B: Dipendente
-    tipo,                          // C: Tipo
-    Math.round(distanza),          // D: Distanza (m)
-    data.lat,                      // E: Latitudine
-    data.lng,                      // F: Longitudine
-    data.userAgent || 'N/A'        // G: Dispositivo
+    now,
+    dip.nome,
+    tipo,
+    Math.round(distanza),
+    data.lat,
+    data.lng,
+    data.userAgent || 'N/A'
   ]);
 
-  // Formatta la data nella colonna A
-  const lastRow = sheet.getLastRow();
+  var lastRow = sheet.getLastRow();
   sheet.getRange(lastRow, 1).setNumberFormat('dd/MM/yyyy HH:mm:ss');
 
   return {
@@ -132,18 +120,16 @@ function registraTimbratura(data) {
 }
 
 /**
- * Restituisce la prossima azione per un dipendente (ENTRATA o USCITA)
- * Chiamata anche dal client per mostrare il bottone giusto
+ * Restituisce 'ENTRATA' o 'USCITA' in base all'ultima timbratura
  */
 function getProssimaAzione(employeeId) {
-  const dip = CONFIG.DIPENDENTI[employeeId];
+  var dip = CONFIG.DIPENDENTI[employeeId];
   if (!dip) return 'ENTRATA';
 
-  const sheet = getOrCreateSheet(NOME_FOGLIO_TIMBRATURE);
-  const data = sheet.getDataRange().getValues();
+  var sheet = getOrCreateSheet(NOME_FOGLIO_TIMBRATURE);
+  var data = sheet.getDataRange().getValues();
 
-  // Cerca l'ultima azione di questo dipendente (parti dal basso)
-  for (let i = data.length - 1; i >= 1; i--) {
+  for (var i = data.length - 1; i >= 1; i--) {
     if (data[i][1] === dip.nome) {
       return data[i][2] === 'ENTRATA' ? 'USCITA' : 'ENTRATA';
     }
@@ -152,30 +138,18 @@ function getProssimaAzione(employeeId) {
   return 'ENTRATA';
 }
 
-/**
- * Restituisce il nome del dipendente dato il suo ID
- * Usato dal client per conferma visuale
- */
-function getNomeDipendente(employeeId) {
-  const dip = CONFIG.DIPENDENTI[employeeId];
-  return dip ? dip.nome : null;
-}
-
 // ============================================================
-//  FUNZIONI DI UTILITÀ
+//  UTILITÀ
 // ============================================================
 
-/**
- * Calcola la distanza in metri tra due coordinate GPS (formula Haversine)
- */
 function calcolaDistanza(lat1, lon1, lat2, lon2) {
-  const R = 6371000; // Raggio della Terra in metri
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-            Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  var R = 6371000;
+  var dLat = toRad(lat2 - lat1);
+  var dLon = toRad(lon2 - lon1);
+  var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+          Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
 
@@ -183,37 +157,27 @@ function toRad(deg) {
   return deg * (Math.PI / 180);
 }
 
-/**
- * Ottiene o crea il foglio specificato con le intestazioni
- */
 function getOrCreateSheet(nome) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(nome);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(nome);
 
   if (!sheet) {
     sheet = ss.insertSheet(nome);
 
     if (nome === NOME_FOGLIO_TIMBRATURE) {
-      // Intestazioni
-      const headers = ['Data/Ora', 'Dipendente', 'Tipo', 'Distanza (m)', 'Latitudine', 'Longitudine', 'Dispositivo'];
+      var headers = ['Data/Ora', 'Dipendente', 'Tipo', 'Distanza (m)', 'Latitudine', 'Longitudine', 'Dispositivo'];
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-
-      // Formattazione intestazioni
       sheet.getRange(1, 1, 1, headers.length)
         .setFontWeight('bold')
         .setBackground('#4285f4')
         .setFontColor('#ffffff');
-
-      // Larghezza colonne
-      sheet.setColumnWidth(1, 170); // Data/Ora
-      sheet.setColumnWidth(2, 150); // Dipendente
-      sheet.setColumnWidth(3, 100); // Tipo
-      sheet.setColumnWidth(4, 100); // Distanza
-      sheet.setColumnWidth(5, 120); // Lat
-      sheet.setColumnWidth(6, 120); // Lng
-      sheet.setColumnWidth(7, 200); // Dispositivo
-
-      // Blocca riga intestazione
+      sheet.setColumnWidth(1, 170);
+      sheet.setColumnWidth(2, 150);
+      sheet.setColumnWidth(3, 100);
+      sheet.setColumnWidth(4, 100);
+      sheet.setColumnWidth(5, 120);
+      sheet.setColumnWidth(6, 120);
+      sheet.setColumnWidth(7, 200);
       sheet.setFrozenRows(1);
     }
   }
@@ -221,10 +185,10 @@ function getOrCreateSheet(nome) {
   return sheet;
 }
 
-/**
- * Funzione di setup iniziale - eseguila una volta per creare i fogli
- * Menu: Esegui → setupIniziale
- */
+// ============================================================
+//  SETUP E MENU
+// ============================================================
+
 function setupIniziale() {
   getOrCreateSheet(NOME_FOGLIO_TIMBRATURE);
   creaFoglioRiepilogo();
@@ -234,117 +198,96 @@ function setupIniziale() {
     '1. Deploy → Nuova distribuzione → App web\n' +
     '2. Esegui come: Te stesso\n' +
     '3. Chi ha accesso: Chiunque\n' +
-    '4. Copia l\'URL generato'
+    '4. Copia l\'URL e facci un QR code'
   );
 }
 
-/**
- * Crea il foglio riepilogo con le formule per calcolare le ore
- */
 function creaFoglioRiepilogo() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(NOME_FOGLIO_RIEPILOGO);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(NOME_FOGLIO_RIEPILOGO);
   if (sheet) ss.deleteSheet(sheet);
 
   sheet = ss.insertSheet(NOME_FOGLIO_RIEPILOGO);
 
-  // Intestazione
-  sheet.getRange('A1').setValue('RIEPILOGO ORE LAVORATE');
+  sheet.getRange('A1').setValue('RIEPILOGO ORE LAVORATE - LA TIENDA DE JUAN');
   sheet.getRange('A1').setFontSize(14).setFontWeight('bold');
 
   sheet.getRange('A3').setValue('Mese/Anno di riferimento:');
   sheet.getRange('B3').setValue(Utilities.formatDate(new Date(), 'Europe/Rome', 'MM/yyyy'));
   sheet.getRange('B3').setFontWeight('bold').setBackground('#fff2cc');
 
-  // Tabella riepilogo per dipendente
-  const headers = ['Dipendente', 'Ore Totali Mese', 'Giorni Lavorati', 'Media Ore/Giorno'];
+  var headers = ['Dipendente', 'Ore Totali Mese', 'Giorni Lavorati', 'Media Ore/Giorno'];
   sheet.getRange(5, 1, 1, headers.length).setValues([headers]);
   sheet.getRange(5, 1, 1, headers.length)
     .setFontWeight('bold')
     .setBackground('#4285f4')
     .setFontColor('#ffffff');
 
-  let row = 6;
-  for (const id in CONFIG.DIPENDENTI) {
-    const nome = CONFIG.DIPENDENTI[id].nome;
-    sheet.getRange(row, 1).setValue(nome);
-    // Le ore verranno calcolate con la funzione aggiornaRiepilogo()
+  var row = 6;
+  for (var id in CONFIG.DIPENDENTI) {
+    sheet.getRange(row, 1).setValue(CONFIG.DIPENDENTI[id].nome);
     row++;
   }
 
-  sheet.getRange('A' + (row + 1)).setValue('→ Per aggiornare: menu Timbrature → Aggiorna riepilogo');
+  sheet.getRange('A' + (row + 1)).setValue('Per aggiornare: menu Timbrature → Aggiorna riepilogo');
   sheet.getRange('A' + (row + 1)).setFontStyle('italic').setFontColor('#666666');
 
-  // Larghezze colonne
   sheet.setColumnWidth(1, 180);
   sheet.setColumnWidth(2, 150);
   sheet.setColumnWidth(3, 130);
   sheet.setColumnWidth(4, 150);
 }
 
-/**
- * Aggiorna il riepilogo ore per il mese specificato nel foglio Riepilogo
- */
 function aggiornaRiepilogo() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheetTimb = ss.getSheetByName(NOME_FOGLIO_TIMBRATURE);
-  const sheetRiep = ss.getSheetByName(NOME_FOGLIO_RIEPILOGO);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheetTimb = ss.getSheetByName(NOME_FOGLIO_TIMBRATURE);
+  var sheetRiep = ss.getSheetByName(NOME_FOGLIO_RIEPILOGO);
 
   if (!sheetTimb || !sheetRiep) {
     SpreadsheetApp.getUi().alert('Errore: fogli non trovati. Esegui prima setupIniziale().');
     return;
   }
 
-  // Leggi il mese di riferimento
-  const meseAnnoStr = sheetRiep.getRange('B3').getValue().toString();
-  const parts = meseAnnoStr.split('/');
-  const meseRif = parseInt(parts[0]) - 1; // 0-indexed
-  const annoRif = parseInt(parts[1]);
+  var meseAnnoStr = sheetRiep.getRange('B3').getValue().toString();
+  var parts = meseAnnoStr.split('/');
+  var meseRif = parseInt(parts[0]) - 1;
+  var annoRif = parseInt(parts[1]);
 
-  // Leggi tutte le timbrature
-  const timbrature = sheetTimb.getDataRange().getValues();
+  var timbrature = sheetTimb.getDataRange().getValues();
 
-  // Calcola ore per ogni dipendente
-  let row = 6;
-  for (const id in CONFIG.DIPENDENTI) {
-    const nome = CONFIG.DIPENDENTI[id].nome;
+  var row = 6;
+  for (var id in CONFIG.DIPENDENTI) {
+    var nome = CONFIG.DIPENDENTI[id].nome;
 
-    // Filtra timbrature di questo dipendente nel mese
-    const timbDip = [];
-    for (let i = 1; i < timbrature.length; i++) {
-      const data = new Date(timbrature[i][0]);
+    var timbDip = [];
+    for (var i = 1; i < timbrature.length; i++) {
+      var data = new Date(timbrature[i][0]);
       if (timbrature[i][1] === nome &&
           data.getMonth() === meseRif &&
           data.getFullYear() === annoRif) {
-        timbDip.push({
-          data: data,
-          tipo: timbrature[i][2]
-        });
+        timbDip.push({ data: data, tipo: timbrature[i][2] });
       }
     }
 
-    // Ordina per data
     timbDip.sort(function(a, b) { return a.data - b.data; });
 
-    // Calcola ore: accoppia ENTRATA-USCITA
-    let oreTotali = 0;
-    const giorniSet = {};
+    var oreTotali = 0;
+    var giorniSet = {};
 
-    for (let i = 0; i < timbDip.length - 1; i++) {
+    for (var i = 0; i < timbDip.length - 1; i++) {
       if (timbDip[i].tipo === 'ENTRATA' && timbDip[i + 1].tipo === 'USCITA') {
-        const diff = (timbDip[i + 1].data - timbDip[i].data) / (1000 * 60 * 60);
-        // Ignora sessioni superiori a 16 ore (probabile errore)
+        var diff = (timbDip[i + 1].data - timbDip[i].data) / (1000 * 60 * 60);
         if (diff > 0 && diff <= 16) {
           oreTotali += diff;
-          const giorno = Utilities.formatDate(timbDip[i].data, 'Europe/Rome', 'yyyy-MM-dd');
+          var giorno = Utilities.formatDate(timbDip[i].data, 'Europe/Rome', 'yyyy-MM-dd');
           giorniSet[giorno] = true;
         }
-        i++; // Salta l'uscita
+        i++;
       }
     }
 
-    const giorniLavorati = Object.keys(giorniSet).length;
-    const mediaOre = giorniLavorati > 0 ? oreTotali / giorniLavorati : 0;
+    var giorniLavorati = Object.keys(giorniSet).length;
+    var mediaOre = giorniLavorati > 0 ? oreTotali / giorniLavorati : 0;
 
     sheetRiep.getRange(row, 2).setValue(Math.round(oreTotali * 100) / 100);
     sheetRiep.getRange(row, 3).setValue(giorniLavorati);
@@ -353,37 +296,26 @@ function aggiornaRiepilogo() {
     row++;
   }
 
-  // Formatta numeri
   sheetRiep.getRange(6, 2, row - 6, 1).setNumberFormat('0.00');
   sheetRiep.getRange(6, 4, row - 6, 1).setNumberFormat('0.00');
 
   SpreadsheetApp.getUi().alert('Riepilogo aggiornato per ' + meseAnnoStr + '!');
 }
 
-/**
- * Aggiunge menu personalizzato al Google Sheet
- */
 function onOpen() {
   SpreadsheetApp.getUi()
-    .createMenu('⏰ Timbrature')
+    .createMenu('Timbrature')
     .addItem('Setup iniziale', 'setupIniziale')
     .addItem('Aggiorna riepilogo', 'aggiornaRiepilogo')
     .addItem('Mostra URL per QR code', 'mostraURL')
     .addToUi();
 }
 
-/**
- * Mostra l'URL della web app per generare i QR code
- */
 function mostraURL() {
-  const url = ScriptApp.getService().getUrl();
-  let msg = 'URL base della web app:\n' + url + '\n\n';
-  msg += 'URL per ogni dipendente (da trasformare in QR code):\n\n';
-
-  for (const id in CONFIG.DIPENDENTI) {
-    msg += CONFIG.DIPENDENTI[id].nome + ':\n';
-    msg += url + '?id=' + id + '\n\n';
-  }
-
-  SpreadsheetApp.getUi().alert(msg);
+  var url = ScriptApp.getService().getUrl();
+  SpreadsheetApp.getUi().alert(
+    'URL della web app (per il QR code):\n\n' + url + '\n\n' +
+    'Fai un QR code con questo URL e appendilo nel locale.\n' +
+    'I dipendenti lo scansionano, scelgono il loro nome e inseriscono il PIN.'
+  );
 }

@@ -3,13 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Timbratura</title>
+  <title>Timbratura - La Tienda de Juan</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -27,24 +23,89 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 20px;
+      gap: 16px;
     }
 
     .header {
       text-align: center;
-      padding: 20px 0 10px;
+      padding: 24px 0 8px;
     }
 
-    .header h1 {
-      font-size: 22px;
-      color: #333;
+    .bar-name {
+      font-size: 13px;
+      color: #999;
+      font-weight: 500;
+      letter-spacing: 1px;
+      text-transform: uppercase;
       margin-bottom: 4px;
     }
 
-    .header .nome {
+    .header h1 {
+      font-size: 24px;
+      color: #333;
+    }
+
+    /* ---- STEP 1: Selezione dipendente ---- */
+    .employee-list {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .employee-list p {
+      text-align: center;
+      color: #666;
+      font-size: 15px;
+    }
+
+    .btn-employee {
+      width: 100%;
+      padding: 20px;
+      font-size: 20px;
+      font-weight: 600;
+      border: 2px solid #e0e0e0;
+      border-radius: 14px;
+      background: white;
+      color: #333;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn-employee:active {
+      transform: scale(0.97);
+      border-color: #1a73e8;
+      background: #e8f0fe;
+    }
+
+    /* ---- STEP 2: PIN + Timbra ---- */
+    .step-timbra {
+      width: 100%;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .step-timbra.active {
+      display: flex;
+    }
+
+    .selected-name {
       font-size: 28px;
       font-weight: 700;
       color: #1a73e8;
+      text-align: center;
+    }
+
+    .btn-back {
+      font-size: 13px;
+      color: #999;
+      background: none;
+      border: none;
+      cursor: pointer;
+      text-decoration: underline;
+      padding: 4px;
     }
 
     .card {
@@ -102,31 +163,14 @@
       transition: all 0.2s;
       color: white;
       letter-spacing: 1px;
-      position: relative;
-      overflow: hidden;
     }
 
-    .btn-timbra:active {
-      transform: scale(0.97);
-    }
+    .btn-timbra:active { transform: scale(0.97); }
+    .btn-timbra:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
-    .btn-timbra:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      transform: none;
-    }
-
-    .btn-entrata {
-      background: linear-gradient(135deg, #34a853, #1e8e3e);
-    }
-
-    .btn-uscita {
-      background: linear-gradient(135deg, #ea4335, #c5221f);
-    }
-
-    .btn-loading {
-      background: #9e9e9e;
-    }
+    .btn-entrata { background: linear-gradient(135deg, #34a853, #1e8e3e); }
+    .btn-uscita { background: linear-gradient(135deg, #ea4335, #c5221f); }
+    .btn-loading { background: #9e9e9e; }
 
     .status-box {
       text-align: center;
@@ -134,34 +178,15 @@
       border-radius: 12px;
       font-size: 15px;
       line-height: 1.5;
+      width: 100%;
     }
 
-    .status-success {
-      background: #e6f4ea;
-      color: #1e8e3e;
-    }
+    .status-success { background: #e6f4ea; color: #1e8e3e; }
+    .status-error { background: #fce8e6; color: #d93025; }
+    .status-info { background: #e8f0fe; color: #1a73e8; }
 
-    .status-error {
-      background: #fce8e6;
-      color: #d93025;
-    }
-
-    .status-info {
-      background: #e8f0fe;
-      color: #1a73e8;
-    }
-
-    .status-box .big {
-      font-size: 42px;
-      display: block;
-      margin-bottom: 8px;
-    }
-
-    .status-box .ora {
-      font-size: 24px;
-      font-weight: 700;
-      display: block;
-    }
+    .status-box .big { font-size: 42px; display: block; margin-bottom: 8px; }
+    .status-box .ora { font-size: 24px; font-weight: 700; display: block; }
 
     .gps-status {
       font-size: 13px;
@@ -196,20 +221,10 @@
       padding: 20px 0;
     }
 
-    .bar-name {
-      font-size: 13px;
-      color: #999;
-      text-align: center;
-      font-weight: 500;
-    }
-
-    /* Overlay di caricamento iniziale */
     .loading-overlay {
       position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
       background: white;
       display: flex;
       flex-direction: column;
@@ -234,9 +249,7 @@
       margin-bottom: 16px;
     }
 
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
@@ -251,7 +264,6 @@
     <div class="header">
       <div class="bar-name">La Tienda de Juan</div>
       <h1>Timbratura</h1>
-      <div class="nome" id="nomeDisplay"><?= employeeName ?></div>
     </div>
 
     <!-- Stato GPS -->
@@ -260,26 +272,30 @@
       <span id="gpsText">Localizzazione in corso...</span>
     </div>
 
-    <!-- PIN -->
-    <div class="card pin-section" id="pinSection">
-      <label for="pinInput">Inserisci il tuo PIN</label>
-      <input type="tel"
-             id="pinInput"
-             class="pin-input"
-             maxlength="4"
-             pattern="[0-9]*"
-             inputmode="numeric"
-             autocomplete="off"
-             placeholder="••••">
+    <!-- STEP 1: Scegli chi sei -->
+    <div class="employee-list" id="stepScegli">
+      <p>Chi sei?</p>
+      <!-- Bottoni generati dal JS -->
     </div>
 
-    <!-- Bottone Timbra -->
-    <button class="btn-timbra btn-loading" id="btnTimbra" disabled onclick="timbra()">
-      Caricamento...
-    </button>
+    <!-- STEP 2: PIN + Timbra -->
+    <div class="step-timbra" id="stepTimbra">
+      <div class="selected-name" id="nomeSelezionato"></div>
+      <button class="btn-back" onclick="tornaAllaLista()">Cambia dipendente</button>
 
-    <!-- Risultato -->
-    <div class="status-box status-info" id="statusBox" style="display:none;"></div>
+      <div class="card pin-section">
+        <label for="pinInput">Inserisci il tuo PIN</label>
+        <input type="tel" id="pinInput" class="pin-input"
+               maxlength="4" pattern="[0-9]*" inputmode="numeric"
+               autocomplete="off" placeholder="••••">
+      </div>
+
+      <button class="btn-timbra btn-loading" id="btnTimbra" disabled onclick="timbra()">
+        Caricamento...
+      </button>
+
+      <div class="status-box status-info" id="statusBox" style="display:none;"></div>
+    </div>
 
     <div class="footer">
       La Tienda de Juan &mdash; Rilevazione presenze
@@ -288,7 +304,7 @@
 
   <script>
     // Dati iniettati dal server
-    var EMPLOYEE_ID = '<?= employeeId ?>';
+    var DIPENDENTI = <?= dipendentiJSON ?>;
     var BAR_LAT = <?= barLat ?>;
     var BAR_LNG = <?= barLng ?>;
     var MAX_DISTANZA = <?= maxDistanza ?>;
@@ -297,6 +313,7 @@
     var gpsReady = false;
     var currentLat = null;
     var currentLng = null;
+    var selectedId = null;
     var prossimaAzione = null;
     var isProcessing = false;
 
@@ -304,6 +321,17 @@
     init();
 
     function init() {
+      // Genera i bottoni dipendenti
+      var container = document.getElementById('stepScegli');
+      for (var id in DIPENDENTI) {
+        var btn = document.createElement('button');
+        btn.className = 'btn-employee';
+        btn.textContent = DIPENDENTI[id];
+        btn.setAttribute('data-id', id);
+        btn.onclick = function() { selezionaDipendente(this.getAttribute('data-id')); };
+        container.appendChild(btn);
+      }
+
       // Avvia geolocalizzazione
       if ('geolocation' in navigator) {
         navigator.geolocation.getCurrentPosition(
@@ -315,25 +343,59 @@
         showGpsStatus('error', 'GPS non disponibile su questo dispositivo');
       }
 
-      // Carica prossima azione
-      google.script.run
-        .withSuccessHandler(onAzioneLoaded)
-        .withFailureHandler(function(err) {
-          onAzioneLoaded('ENTRATA');
-        })
-        .getProssimaAzione(EMPLOYEE_ID);
+      // Nascondi overlay
+      document.getElementById('loadingOverlay').classList.add('hidden');
 
-      // Focus sul PIN quando la pagina è caricata
-      setTimeout(function() {
-        document.getElementById('pinInput').focus();
-      }, 500);
-
-      // Timbra con Enter dopo aver inserito il PIN
+      // Enter sul PIN
       document.getElementById('pinInput').addEventListener('keyup', function(e) {
         if (e.key === 'Enter' && this.value.length === 4) {
           timbra();
         }
       });
+    }
+
+    // ---- Selezione dipendente ----
+    function selezionaDipendente(id) {
+      selectedId = id;
+      prossimaAzione = null;
+
+      document.getElementById('nomeSelezionato').textContent = DIPENDENTI[id];
+      document.getElementById('stepScegli').style.display = 'none';
+      document.getElementById('stepTimbra').classList.add('active');
+      document.getElementById('pinInput').value = '';
+      document.getElementById('statusBox').style.display = 'none';
+
+      // Carica la prossima azione
+      var btn = document.getElementById('btnTimbra');
+      btn.textContent = 'Caricamento...';
+      btn.className = 'btn-timbra btn-loading';
+      btn.disabled = true;
+
+      google.script.run
+        .withSuccessHandler(function(azione) {
+          prossimaAzione = azione;
+          btn.textContent = 'TIMBRA ' + azione;
+          btn.className = 'btn-timbra ' + (azione === 'ENTRATA' ? 'btn-entrata' : 'btn-uscita');
+          btn.disabled = false;
+        })
+        .withFailureHandler(function() {
+          prossimaAzione = 'ENTRATA';
+          btn.textContent = 'TIMBRA ENTRATA';
+          btn.className = 'btn-timbra btn-entrata';
+          btn.disabled = false;
+        })
+        .getProssimaAzione(id);
+
+      setTimeout(function() {
+        document.getElementById('pinInput').focus();
+      }, 300);
+    }
+
+    function tornaAllaLista() {
+      selectedId = null;
+      prossimaAzione = null;
+      document.getElementById('stepScegli').style.display = 'flex';
+      document.getElementById('stepTimbra').classList.remove('active');
     }
 
     // ---- GPS ----
@@ -345,12 +407,10 @@
       var distanza = calcolaDistanza(BAR_LAT, BAR_LNG, currentLat, currentLng);
 
       if (distanza <= MAX_DISTANZA) {
-        showGpsStatus('ok', 'Posizione verificata (' + Math.round(distanza) + 'm dal bar)');
+        showGpsStatus('ok', 'Posizione verificata (' + Math.round(distanza) + 'm)');
       } else {
-        showGpsStatus('error', 'Troppo lontano dal bar (' + Math.round(distanza) + 'm)');
+        showGpsStatus('error', 'Troppo lontano (' + Math.round(distanza) + 'm)');
       }
-
-      checkReady();
     }
 
     function onGpsError(error) {
@@ -362,15 +422,6 @@
         default: msg += error.message;
       }
       showGpsStatus('error', msg);
-
-      // Mostra un messaggio di aiuto
-      var statusBox = document.getElementById('statusBox');
-      statusBox.className = 'status-box status-error';
-      statusBox.innerHTML = '<span class="big">📍</span>' +
-        'Devi abilitare la localizzazione per timbrare.<br><br>' +
-        '<b>iPhone:</b> Impostazioni → Privacy → Servizi di localizzazione<br>' +
-        '<b>Android:</b> Impostazioni → Posizione → Attiva';
-      statusBox.style.display = 'block';
     }
 
     function showGpsStatus(status, text) {
@@ -378,31 +429,12 @@
       document.getElementById('gpsText').textContent = text;
     }
 
-    // ---- Azione (ENTRATA/USCITA) ----
-    function onAzioneLoaded(azione) {
-      prossimaAzione = azione;
-      checkReady();
-    }
-
-    function checkReady() {
-      if (prossimaAzione) {
-        var btn = document.getElementById('btnTimbra');
-        btn.textContent = 'TIMBRA ' + prossimaAzione;
-        btn.className = 'btn-timbra ' + (prossimaAzione === 'ENTRATA' ? 'btn-entrata' : 'btn-uscita');
-        btn.disabled = false;
-
-        // Nascondi overlay
-        document.getElementById('loadingOverlay').classList.add('hidden');
-      }
-    }
-
     // ---- Timbratura ----
     function timbra() {
-      if (isProcessing) return;
+      if (isProcessing || !selectedId) return;
 
       var pin = document.getElementById('pinInput').value;
 
-      // Valida PIN
       if (pin.length !== 4) {
         document.getElementById('pinInput').classList.add('error');
         setTimeout(function() {
@@ -411,31 +443,29 @@
         return;
       }
 
-      // Controlla GPS
       if (!gpsReady) {
-        showStatusBox('error', '<span class="big">📍</span>In attesa della posizione GPS...<br>Assicurati di aver abilitato la localizzazione.');
+        showStatusBox('error',
+          '<span class="big">📍</span>' +
+          'In attesa della posizione GPS...<br>Abilita la localizzazione nelle impostazioni.');
         return;
       }
 
-      // Avvia
       isProcessing = true;
       var btn = document.getElementById('btnTimbra');
       btn.disabled = true;
       btn.textContent = 'Registrazione...';
       btn.className = 'btn-timbra btn-loading';
 
-      var data = {
-        employeeId: EMPLOYEE_ID,
-        pin: pin,
-        lat: currentLat,
-        lng: currentLng,
-        userAgent: navigator.userAgent.substring(0, 150)
-      };
-
       google.script.run
         .withSuccessHandler(onTimbraturaSuccess)
         .withFailureHandler(onTimbraturaError)
-        .registraTimbratura(data);
+        .registraTimbratura({
+          employeeId: selectedId,
+          pin: pin,
+          lat: currentLat,
+          lng: currentLng,
+          userAgent: navigator.userAgent.substring(0, 150)
+        });
     }
 
     function onTimbraturaSuccess(result) {
@@ -447,44 +477,37 @@
           '<span class="big">' + icon + '</span>' +
           '<b>' + result.tipo + ' registrata</b><br>' +
           '<span class="ora">' + result.ora + '</span><br>' +
-          'Distanza: ' + result.distanza + 'm dal bar'
-        );
+          'Distanza: ' + result.distanza + 'm');
 
-        // Aggiorna bottone per la prossima azione
         prossimaAzione = result.tipo === 'ENTRATA' ? 'USCITA' : 'ENTRATA';
         var btn = document.getElementById('btnTimbra');
         btn.textContent = 'TIMBRA ' + prossimaAzione;
         btn.className = 'btn-timbra ' + (prossimaAzione === 'ENTRATA' ? 'btn-entrata' : 'btn-uscita');
         btn.disabled = false;
 
-        // Pulisci PIN
         document.getElementById('pinInput').value = '';
-
       } else {
         showStatusBox('error', '<span class="big">⚠️</span>' + result.errore);
 
-        // Se PIN errato, evidenzia il campo
         if (result.errore.indexOf('PIN') !== -1) {
-          document.getElementById('pinInput').classList.add('error');
-          document.getElementById('pinInput').value = '';
-          document.getElementById('pinInput').focus();
-          setTimeout(function() {
-            document.getElementById('pinInput').classList.remove('error');
-          }, 400);
+          var pinEl = document.getElementById('pinInput');
+          pinEl.classList.add('error');
+          pinEl.value = '';
+          pinEl.focus();
+          setTimeout(function() { pinEl.classList.remove('error'); }, 400);
         }
 
-        // Riabilita bottone
-        var btn = document.getElementById('btnTimbra');
-        btn.textContent = 'TIMBRA ' + prossimaAzione;
-        btn.className = 'btn-timbra ' + (prossimaAzione === 'ENTRATA' ? 'btn-entrata' : 'btn-uscita');
-        btn.disabled = false;
+        resetButton();
       }
     }
 
-    function onTimbraturaError(error) {
+    function onTimbraturaError() {
       isProcessing = false;
-      showStatusBox('error', '<span class="big">❌</span>Errore di comunicazione.<br>Riprova tra qualche secondo.');
+      showStatusBox('error', '<span class="big">❌</span>Errore di comunicazione. Riprova.');
+      resetButton();
+    }
 
+    function resetButton() {
       var btn = document.getElementById('btnTimbra');
       btn.textContent = 'TIMBRA ' + prossimaAzione;
       btn.className = 'btn-timbra ' + (prossimaAzione === 'ENTRATA' ? 'btn-entrata' : 'btn-uscita');

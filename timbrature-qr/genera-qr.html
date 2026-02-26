@@ -11,18 +11,20 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: #f5f5f5;
       padding: 20px;
+      display: flex;
+      justify-content: center;
     }
 
     .container {
-      max-width: 800px;
-      margin: 0 auto;
+      max-width: 600px;
+      width: 100%;
     }
 
     h1 {
       text-align: center;
       color: #333;
       margin-bottom: 8px;
-      font-size: 24px;
+      font-size: 22px;
     }
 
     .subtitle {
@@ -40,17 +42,7 @@
       box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     }
 
-    .card h2 {
-      font-size: 16px;
-      color: #333;
-      margin-bottom: 16px;
-    }
-
-    .form-group {
-      margin-bottom: 16px;
-    }
-
-    .form-group label {
+    .card label {
       display: block;
       font-size: 13px;
       color: #666;
@@ -58,9 +50,9 @@
       font-weight: 500;
     }
 
-    .form-group input {
+    .card input {
       width: 100%;
-      padding: 10px 12px;
+      padding: 12px;
       font-size: 15px;
       border: 2px solid #e0e0e0;
       border-radius: 8px;
@@ -68,108 +60,61 @@
       transition: border-color 0.2s;
     }
 
-    .form-group input:focus {
+    .card input:focus {
       border-color: #1a73e8;
     }
 
-    .form-group .hint {
+    .hint {
       font-size: 12px;
       color: #999;
-      margin-top: 4px;
-    }
-
-    .dipendenti-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .dip-row {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-    }
-
-    .dip-row input {
-      flex: 1;
-      padding: 8px 10px;
-      font-size: 14px;
-      border: 2px solid #e0e0e0;
-      border-radius: 8px;
-      outline: none;
-    }
-
-    .dip-row input:focus {
-      border-color: #1a73e8;
-    }
-
-    .dip-row .dip-id {
-      width: 36px;
-      font-weight: 700;
-      color: #1a73e8;
-      text-align: center;
-      flex: none;
-    }
-
-    .dip-row .dip-name {
-      flex: 2;
-    }
-
-    .dip-row .dip-pin {
-      width: 80px;
-      text-align: center;
-      letter-spacing: 4px;
-      flex: none;
+      margin-top: 6px;
     }
 
     .btn {
-      padding: 12px 24px;
-      font-size: 16px;
+      width: 100%;
+      padding: 14px;
+      font-size: 18px;
       font-weight: 600;
       border: none;
       border-radius: 10px;
       cursor: pointer;
       transition: all 0.2s;
       color: white;
+      background: #1a73e8;
     }
 
     .btn:active { transform: scale(0.97); }
-
-    .btn-primary {
-      background: #1a73e8;
-      width: 100%;
-    }
 
     .btn-print {
       background: #34a853;
       margin-top: 16px;
     }
 
-    /* Risultato QR */
-    .qr-results {
+    /* QR Code risultato */
+    .qr-result {
       display: none;
+      text-align: center;
+      margin-top: 20px;
     }
 
     .qr-card {
       background: white;
       border: 2px solid #e0e0e0;
-      border-radius: 12px;
-      padding: 24px;
-      margin-bottom: 16px;
+      border-radius: 16px;
+      padding: 32px;
       text-align: center;
-      page-break-inside: avoid;
     }
 
-    .qr-card h3 {
-      font-size: 20px;
+    .qr-card h2 {
+      font-size: 22px;
       color: #333;
       margin-bottom: 4px;
     }
 
-    .qr-card .qr-subtitle {
-      font-size: 13px;
-      color: #999;
-      margin-bottom: 16px;
+    .qr-card .qr-sub {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 20px;
     }
 
     .qr-card canvas {
@@ -177,123 +122,72 @@
       display: block;
     }
 
-    .qr-card .qr-pin {
-      margin-top: 12px;
+    .qr-card .istruzioni-dip {
+      margin-top: 20px;
       font-size: 14px;
-      color: #666;
-    }
-
-    .qr-card .qr-pin b {
-      font-size: 18px;
       color: #333;
-      letter-spacing: 4px;
+      line-height: 1.8;
+      text-align: left;
+      background: #f9f9f9;
+      padding: 16px;
+      border-radius: 8px;
     }
 
-    .qr-card .qr-url {
-      margin-top: 8px;
+    .qr-card .istruzioni-dip b {
+      color: #1a73e8;
+    }
+
+    .qr-url {
+      margin-top: 12px;
       font-size: 11px;
       color: #ccc;
       word-break: break-all;
     }
 
-    .istruzioni {
-      background: #e8f0fe;
-      border-radius: 8px;
-      padding: 16px;
-      margin-top: 16px;
-      font-size: 13px;
-      color: #1a73e8;
-      line-height: 1.6;
-    }
-
-    /* Stile stampa */
     @media print {
       body { background: white; padding: 0; }
       .no-print { display: none !important; }
-      .qr-results { display: block !important; }
-      .qr-card {
-        border: 1px solid #ccc;
-        margin-bottom: 20px;
-        padding: 30px;
-      }
+      .qr-result { display: block !important; }
+      .qr-card { border: 1px solid #ccc; }
     }
   </style>
 </head>
 <body>
 
   <div class="container">
-    <h1>Genera QR Code - La Tienda de Juan</h1>
-    <p class="subtitle">Configura e stampa i QR code per i dipendenti</p>
+    <h1>La Tienda de Juan</h1>
+    <p class="subtitle">Genera il QR code per le timbrature</p>
 
-    <!-- Step 1: URL -->
-    <div class="card no-print" id="step1">
-      <h2>1. URL della Web App</h2>
-      <div class="form-group">
-        <label for="urlInput">Incolla qui l'URL della tua Web App di Google Apps Script</label>
-        <input type="url" id="urlInput"
-               placeholder="https://script.google.com/macros/s/.../exec">
-        <div class="hint">
-          Lo trovi in Google Sheet → Estensioni → Apps Script → Deploy → Gestisci distribuzioni
-        </div>
+    <div class="card no-print">
+      <label for="urlInput">URL della Web App di Google Apps Script</label>
+      <input type="url" id="urlInput"
+             placeholder="https://script.google.com/macros/s/.../exec">
+      <div class="hint">
+        Lo trovi in: Google Sheet → Estensioni → Apps Script → Deploy → Gestisci distribuzioni
       </div>
     </div>
 
-    <!-- Step 2: Dipendenti -->
-    <div class="card no-print" id="step2">
-      <h2>2. Dipendenti</h2>
-      <div class="dipendenti-list" id="dipendentiList">
-        <div class="dip-row" style="margin-bottom: 4px;">
-          <span class="dip-id" style="font-size:11px; color:#999;">ID</span>
-          <span class="dip-name" style="font-size:11px; color:#999; padding-left:10px;">Nome e Cognome</span>
-          <span class="dip-pin" style="font-size:11px; color:#999;">PIN</span>
+    <button class="btn no-print" onclick="generaQR()">Genera QR Code</button>
+
+    <!-- Risultato -->
+    <div class="qr-result" id="qrResult">
+      <div class="qr-card">
+        <h2>La Tienda de Juan</h2>
+        <p class="qr-sub">Timbra la tua presenza</p>
+        <canvas id="qrCanvas"></canvas>
+        <div class="istruzioni-dip">
+          <b>1.</b> Scansiona il QR code col telefono<br>
+          <b>2.</b> Seleziona il tuo nome<br>
+          <b>3.</b> Inserisci il tuo PIN<br>
+          <b>4.</b> Premi TIMBRA
         </div>
-        <div class="dip-row">
-          <span class="dip-id">1</span>
-          <input type="text" class="dip-name" placeholder="Mario Rossi" data-id="1">
-          <input type="tel" class="dip-pin" maxlength="4" placeholder="1234" data-id="1">
-        </div>
-        <div class="dip-row">
-          <span class="dip-id">2</span>
-          <input type="text" class="dip-name" placeholder="Luigi Bianchi" data-id="2">
-          <input type="tel" class="dip-pin" maxlength="4" placeholder="5678" data-id="2">
-        </div>
-        <div class="dip-row">
-          <span class="dip-id">3</span>
-          <input type="text" class="dip-name" placeholder="Anna Verdi" data-id="3">
-          <input type="tel" class="dip-pin" maxlength="4" placeholder="9012" data-id="3">
-        </div>
+        <div class="qr-url" id="qrUrl"></div>
       </div>
 
-      <div class="istruzioni">
-        <b>Importante:</b> I nomi e PIN qui devono corrispondere ESATTAMENTE a quelli configurati
-        nel file Code.gs dentro Google Apps Script.
-      </div>
-    </div>
-
-    <!-- Bottone genera -->
-    <button class="btn btn-primary no-print" onclick="generaQR()">
-      Genera QR Code
-    </button>
-
-    <!-- Risultati -->
-    <div class="qr-results" id="qrResults"></div>
-
-    <!-- Bottone stampa -->
-    <div id="printSection" style="display:none; text-align:center;" class="no-print">
-      <button class="btn btn-print" onclick="window.print()">
-        Stampa QR Code
-      </button>
-      <div class="istruzioni" style="margin-top:16px;">
-        <b>Suggerimenti:</b><br>
-        - Stampa i QR code e appendili vicino all'ingresso del bar<br>
-        - Ogni dipendente deve scansionare SOLO il proprio QR code<br>
-        - I PIN NON vanno scritti sui fogli stampati!<br>
-        - Comunica il PIN a ciascun dipendente separatamente
-      </div>
+      <button class="btn btn-print no-print" onclick="window.print()">Stampa</button>
     </div>
   </div>
 
-  <!-- Libreria QR Code (qrcode.js via CDN) -->
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 
   <script>
@@ -305,53 +199,18 @@
         return;
       }
 
-      // Rimuovi slash finale
       if (url.endsWith('/')) url = url.slice(0, -1);
 
-      var resultsDiv = document.getElementById('qrResults');
-      resultsDiv.innerHTML = '';
+      document.getElementById('qrUrl').textContent = url;
 
-      var rows = document.querySelectorAll('.dip-row');
-      var count = 0;
+      QRCode.toCanvas(document.getElementById('qrCanvas'), url, {
+        width: 250,
+        margin: 2,
+        color: { dark: '#000000', light: '#ffffff' }
+      });
 
-      for (var i = 1; i < rows.length; i++) { // Skip header row
-        var nameInput = rows[i].querySelector('.dip-name');
-        var pinInput = rows[i].querySelector('.dip-pin');
-        var id = nameInput.getAttribute('data-id');
-        var nome = nameInput.value.trim() || nameInput.placeholder;
-        var pin = pinInput.value.trim() || pinInput.placeholder;
-
-        var qrUrl = url + '?id=' + id;
-
-        // Crea card
-        var card = document.createElement('div');
-        card.className = 'qr-card';
-        card.innerHTML =
-          '<h3>' + nome + '</h3>' +
-          '<p class="qr-subtitle">Scansiona per timbrare entrata/uscita</p>' +
-          '<canvas id="qr-' + id + '"></canvas>' +
-          '<p class="qr-pin">Il tuo PIN: <b>' + pin + '</b></p>' +
-          '<p class="qr-url">' + qrUrl + '</p>';
-
-        resultsDiv.appendChild(card);
-
-        // Genera QR code nel canvas
-        (function(canvasId, qrUrl) {
-          QRCode.toCanvas(document.getElementById(canvasId), qrUrl, {
-            width: 200,
-            margin: 2,
-            color: { dark: '#000000', light: '#ffffff' }
-          });
-        })('qr-' + id, qrUrl);
-
-        count++;
-      }
-
-      if (count > 0) {
-        resultsDiv.style.display = 'block';
-        document.getElementById('printSection').style.display = 'block';
-        resultsDiv.scrollIntoView({ behavior: 'smooth' });
-      }
+      document.getElementById('qrResult').style.display = 'block';
+      document.getElementById('qrResult').scrollIntoView({ behavior: 'smooth' });
     }
   </script>
 
