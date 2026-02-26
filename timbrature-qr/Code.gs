@@ -23,7 +23,7 @@
 //  CONFIGURAZIONE - MODIFICA QUESTI VALORI!
 // ============================================================
 
-const CONFIG = {
+var CONFIG = {
   // Coordinate GPS del bar
   // Come trovarle: cerca "La Tienda de Juan" su Google Maps
   // Tasto destro → "Che cosa c'è qui?" → copia le coordinate
@@ -42,8 +42,8 @@ const CONFIG = {
   }
 };
 
-const NOME_FOGLIO_TIMBRATURE = 'Timbrature';
-const NOME_FOGLIO_RIEPILOGO = 'Riepilogo';
+var NOME_FOGLIO_TIMBRATURE = 'Timbrature';
+var NOME_FOGLIO_RIEPILOGO = 'Riepilogo';
 
 // ============================================================
 //  FUNZIONI PRINCIPALI - NON MODIFICARE
